@@ -246,6 +246,13 @@ const MandisPage = ({ lorries, gitti, morang }) => {
   );
 };
 
+const OnboardingField = ({ label, fieldKey, type = "text", req, disabled, form, upd }) => (
+  <div>
+    <label className="block text-sm font-medium text-gray-700 mb-1">{label}{req && <span className="text-red-500">*</span>}</label>
+    <input type={type} value={form[fieldKey]} onChange={e => upd(fieldKey, e.target.value)} disabled={disabled} className={`w-full border border-gray-300 rounded-lg px-3 py-2 text-sm ${disabled ? "bg-gray-100" : ""}`} />
+  </div>
+);
+
 const OnboardingPage = ({ addReq, addLorry }) => {
   const [form, setForm] = useState({ owner_name: "", driver_name: "", driver_phone: "", owner_phone: "", registration_number: "", gross_weight_tonnes: "", product_type: "gitti", product_variant: "6mm (Jeera)", price: "", source_location: "", mandi: "Akbarpur", availability: "available" });
   const [submitted, setSubmitted] = useState(false); const [verifying, setVerifying] = useState(false); const [verified, setVerified] = useState(null); const [verifyError, setVerifyError] = useState("");
@@ -253,7 +260,7 @@ const OnboardingPage = ({ addReq, addLorry }) => {
   const verifyVehicle = () => { const reg = form.registration_number.replace(/\s/g, "").toUpperCase(); if (reg.length < 8) { setVerifyError("Enter valid registration number"); return; } setVerifying(true); setVerifyError(""); setVerified(null); setTimeout(() => { const d = PARIVAHAN_DB[reg]; if (d) { setVerified(d); upd("owner_name", d.owner); } else { setVerifyError("Vehicle not found in Parivahan database."); } setVerifying(false); }, 1500); };
   const submit = () => { if (!form.owner_name || !form.driver_phone || !form.registration_number) { alert("Fill required fields"); return; } const req = { ...form, registration_number: form.registration_number.replace(/\s/g, "").toUpperCase(), id: Date.now(), status: "pending", submitted_at: new Date().toLocaleDateString(), verified: !!verified }; addReq(req); addLorry({ id: Date.now(), registration_number: req.registration_number, gross_weight_tonnes: Number(req.gross_weight_tonnes) || 40, driver_name: req.driver_name || "TBD", driver_phone: req.driver_phone, owner_name: req.owner_name, owner_phone: req.owner_phone || req.driver_phone, mandi: req.mandi, availability: "available", vehicle_type: verified?.vehicle_type || "Tata Signa", supplier_phone: req.driver_phone }); setSubmitted(true); };
   if (submitted) return <div className="bg-green-50 border border-green-200 rounded-xl p-8 text-center"><div className="text-4xl mb-3">✅</div><div className="text-green-700 text-xl font-bold mb-2">Registration Successful!</div><div className="text-green-600 text-sm">Vehicle added. Admin will review shortly.</div><button onClick={() => { setSubmitted(false); setForm({ owner_name: "", driver_name: "", driver_phone: "", owner_phone: "", registration_number: "", gross_weight_tonnes: "", product_type: "gitti", product_variant: "6mm (Jeera)", price: "", source_location: "", mandi: "Akbarpur", availability: "available" }); setVerified(null); }} className="mt-4 text-sm text-green-700 underline">Register another</button></div>;
-  const F = ({ label, k, type = "text", req, disabled }) => <div><label className="block text-sm font-medium text-gray-700 mb-1">{label}{req && <span className="text-red-500">*</span>}</label><input type={type} value={form[k]} onChange={e => upd(k, e.target.value)} disabled={disabled} className={`w-full border border-gray-300 rounded-lg px-3 py-2 text-sm ${disabled ? "bg-gray-100" : ""}`} /></div>;
+  const F = ({ label, k, type = "text", req, disabled }) => <OnboardingField label={label} fieldKey={k} type={type} req={req} disabled={disabled} form={form} upd={upd} />;
   return (
     <div>
       <h2 className="text-2xl font-bold text-gray-800 mb-1">Supplier Registration</h2><p className="text-gray-500 mb-5 text-sm">Register your vehicle & list materials</p>
