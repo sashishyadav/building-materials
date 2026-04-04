@@ -1,16 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 
-function useLocalStorage(key, initial) {
-  const [val, setVal] = useState(() => {
-    try { const s = localStorage.getItem(key); return s ? JSON.parse(s) : (typeof initial === "function" ? initial() : initial); } catch { return typeof initial === "function" ? initial() : initial; }
-  });
-  const set = (v) => setVal(prev => {
-    const next = typeof v === "function" ? v(prev) : v;
-    try { localStorage.setItem(key, JSON.stringify(next)); } catch {}
-    return next;
-  });
-  return [val, set];
-}
+const API = "/api";
 
 const TRUCK_IMG = "data:image/svg+xml," + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 260"><defs><linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#fde68a"/><stop offset="100%" stop-color="#f3f4f6"/></linearGradient></defs><rect width="400" height="260" fill="url(#sky)" rx="12"/><rect x="40" y="65" width="320" height="140" rx="10" fill="#fff" stroke="#e5e7eb" stroke-width="2"/><rect x="55" y="75" width="290" height="65" rx="6" fill="#dbeafe"/><rect x="70" y="82" width="260" height="50" rx="3" fill="#93c5fd" opacity="0.4"/><rect x="130" y="92" width="140" height="30" rx="3" fill="#bfdbfe" opacity="0.5"/><rect x="55" y="148" width="130" height="22" rx="11" fill="#fbbf24"/><rect x="215" y="148" width="130" height="22" rx="11" fill="#fbbf24"/><circle cx="110" cy="205" r="24" fill="#1f2937"/><circle cx="110" cy="205" r="14" fill="#4b5563"/><circle cx="110" cy="205" r="6" fill="#9ca3af"/><circle cx="290" cy="205" r="24" fill="#1f2937"/><circle cx="290" cy="205" r="14" fill="#4b5563"/><circle cx="290" cy="205" r="6" fill="#9ca3af"/><rect x="40" y="78" width="22" height="55" rx="5" fill="#3b82f6"/><rect x="338" y="78" width="22" height="55" rx="5" fill="#3b82f6"/><text x="200" y="40" text-anchor="middle" fill="#374151" font-size="15" font-family="sans-serif" font-weight="bold">TATA SIGNA</text><text x="200" y="57" text-anchor="middle" fill="#6b7280" font-size="10" font-family="sans-serif">Construction Material Supplier</text><rect x="140" y="178" width="120" height="20" rx="4" fill="#fbbf24" stroke="#d97706" stroke-width="1"/><text x="200" y="192" text-anchor="middle" fill="#1f2937" font-size="9" font-family="monospace" font-weight="bold">IND</text></svg>`);
 
@@ -273,12 +263,22 @@ const OnboardingField = ({ label, fieldKey, type = "text", req, disabled, form, 
   </div>
 );
 
-const OnboardingPage = ({ addReq }) => {
+const OnboardingPage = ({ fetchReqs }) => {
   const [form, setForm] = useState({ owner_name: "", driver_name: "", driver_phone: "", owner_phone: "", registration_number: "", gross_weight_tonnes: "", product_type: "gitti", product_variant: "6mm (Jeera)", price: "", source_location: "", mandi: "Akbarpur", availability: "available" });
   const [submitted, setSubmitted] = useState(false); const [verifying, setVerifying] = useState(false); const [verified, setVerified] = useState(null); const [verifyError, setVerifyError] = useState("");
   const upd = (k, v) => setForm(p => ({ ...p, [k]: v }));
   const verifyVehicle = () => { const reg = form.registration_number.replace(/\s/g, "").toUpperCase(); if (reg.length < 8) { setVerifyError("Enter valid registration number"); return; } setVerifying(true); setVerifyError(""); setVerified(null); setTimeout(() => { const d = PARIVAHAN_DB[reg]; if (d) { setVerified(d); upd("owner_name", d.owner); } else { setVerifyError("Vehicle not found in Parivahan database."); } setVerifying(false); }, 1500); };
-  const submit = () => { if (!form.owner_name || !form.driver_phone || !form.registration_number) { alert("Fill required fields"); return; } const req = { ...form, registration_number: form.registration_number.replace(/\s/g, "").toUpperCase(), id: Date.now(), status: "pending", submitted_at: new Date().toLocaleDateString(), verified: !!verified, vehicle_type: verified?.vehicle_type || "Tata Signa" }; addReq(req); setSubmitted(true); };
+  const submit = async () => {
+    if (!form.owner_name || !form.driver_phone || !form.registration_number) { alert("Fill required fields"); return; }
+    try {
+      const res = await fetch(`${API}/onboarding`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...form, registration_number: form.registration_number.replace(/\s/g, "").toUpperCase(), parivahan_verified: !!verified, parivahan_data: verified || null })
+      });
+      if (res.ok) { fetchReqs(); setSubmitted(true); }
+      else { const e = await res.json(); alert(e.error || "Submission failed"); }
+    } catch { alert("Network error. Please try again."); }
+  };
   if (submitted) return <div className="bg-green-50 border border-green-200 rounded-xl p-8 text-center"><div className="text-4xl mb-3">✅</div><div className="text-green-700 text-xl font-bold mb-2">Registration Successful!</div><div className="text-green-600 text-sm">Vehicle added. Admin will review shortly.</div><button onClick={() => { setSubmitted(false); setForm({ owner_name: "", driver_name: "", driver_phone: "", owner_phone: "", registration_number: "", gross_weight_tonnes: "", product_type: "gitti", product_variant: "6mm (Jeera)", price: "", source_location: "", mandi: "Akbarpur", availability: "available" }); setVerified(null); }} className="mt-4 text-sm text-green-700 underline">Register another</button></div>;
   return (
     <div>
@@ -300,29 +300,41 @@ const AdminOnb = ({ reqs, updateReq }) => (<div><h2 className="text-2xl font-bol
 
 const AdminList = ({ title, data, cols }) => (<div><h2 className="text-2xl font-bold text-gray-800 mb-4">{title}</h2><div className="bg-white border border-gray-200 rounded-xl overflow-x-auto"><table className="w-full text-sm"><thead><tr className="bg-gray-50 border-b border-gray-200">{cols.map(c => <th key={c.k} className="text-left px-4 py-3 font-medium text-gray-600">{c.label}</th>)}</tr></thead><tbody>{data.map((row, i) => <tr key={i} className="border-b border-gray-100 hover:bg-gray-50">{cols.map(c => <td key={c.k} className="px-4 py-3 text-gray-700">{c.k === "availability" ? availBadge(row[c.k]) : (c.k === "registration_number" || c.k === "lorry_registration") ? <span className="bg-yellow-50 border border-yellow-200 px-2 py-0.5 rounded font-mono font-bold text-yellow-800 text-xs">{row[c.k]}</span> : row[c.k]}</td>)}</tr>)}</tbody></table></div></div>);
 
+// ─── helpers ───
+const toVehicle = (v) => ({ id: v.id, registration_number: v.registration_number, gross_weight_tonnes: Number(v.gross_weight_tonnes), driver_name: v.driver_name, driver_phone: v.driver_phone, owner_name: v.owner_name, owner_phone: v.owner_phone, mandi: v.mandi_name || v.mandi, availability: v.availability, vehicle_type: v.vehicle_type || "Tata Signa", supplier_phone: v.driver_phone });
+const toReq = (r) => ({ id: r.id, owner_name: r.owner_name, driver_name: r.driver_name, driver_phone: r.driver_phone, owner_phone: r.owner_phone, registration_number: r.registration_number, gross_weight_tonnes: r.gross_weight_tonnes, product_type: r.product_type, product_variant: r.product_variant, price: r.price, source_location: r.source_location, mandi: r.mandi, status: r.status, verified: r.parivahan_verified });
+
 // ─── MAIN ───
 export default function App() {
   const [view, setView] = useState("public"); const [page, setPage] = useState("home"); const [adminPage, setAdminPage] = useState("dashboard");
-  const [reqs, setReqs] = useLocalStorage("bm_reqs", []);
-  const [lorries, setLorries] = useLocalStorage("bm_lorries", initLorries);
+  const [reqs, setReqs] = useState([]);
+  const [lorries, setLorries] = useState(initLorries);
   const [mobileMenu, setMobileMenu] = useState(false); const [loginModal, setLoginModal] = useState(null); const [user, setUser] = useState(null);
   const [gitti, setGitti] = useState(initGitti); const [morang, setMorang] = useState(initMorang);
-  const addReq = (r) => setReqs(p => [r, ...p]);
-  const removeLorry = (id) => setLorries(p => p.filter(l => l.id !== id));
-  const updateReq = (id, st, reqObj) => {
-    if (st === "approved" && reqObj) {
-      const lid = Date.now();
-      setLorries(p => [...p, { id: lid, registration_number: reqObj.registration_number, gross_weight_tonnes: Number(reqObj.gross_weight_tonnes) || 40, driver_name: reqObj.driver_name || "TBD", driver_phone: reqObj.driver_phone, owner_name: reqObj.owner_name, owner_phone: reqObj.owner_phone || reqObj.driver_phone, mandi: reqObj.mandi, availability: "available", vehicle_type: reqObj.vehicle_type || "Tata Signa", supplier_phone: reqObj.driver_phone }]);
-      if (reqObj.product_type === "gitti" && reqObj.price) setGitti(p => [...p, { id: lid + 1, size: reqObj.product_variant, crusher_name: reqObj.owner_name, crusher_location: reqObj.source_location || "", price_per_cft: Number(reqObj.price), district: reqObj.mandi, lorry_registration: reqObj.registration_number, gross_weight_tonnes: Number(reqObj.gross_weight_tonnes) || 40, driver_phone: reqObj.driver_phone, owner_phone: reqObj.owner_phone || reqObj.driver_phone, availability: "available" }]);
-      else if (reqObj.product_type === "morang" && reqObj.price) setMorang(p => [...p, { id: lid + 1, type: reqObj.product_variant, use_case: "", source_location: reqObj.source_location || "", price_per_tonne: Number(reqObj.price), district: reqObj.mandi, lorry_registration: reqObj.registration_number, gross_weight_tonnes: Number(reqObj.gross_weight_tonnes) || 40, driver_phone: reqObj.driver_phone, owner_phone: reqObj.owner_phone || reqObj.driver_phone, availability: "available" }]);
-    }
-    setReqs(p => p.map(r => r.id === id ? { ...r, status: st } : r));
+
+  const fetchVehicles = () => fetch(`${API}/vehicles`).then(r => r.json()).then(data => { if (Array.isArray(data) && data.length) setLorries(data.map(toVehicle)); }).catch(() => {});
+  const fetchReqs = () => fetch(`${API}/admin/onboarding`).then(r => r.json()).then(data => { if (Array.isArray(data)) setReqs(data.map(toReq)); }).catch(() => {});
+
+  useEffect(() => { fetchVehicles(); fetchReqs(); }, []);
+
+  const removeLorry = async (id) => {
+    setLorries(p => p.filter(l => l.id !== id));
+  };
+  const updateReq = async (id, st) => {
+    const endpoint = st === "approved" ? `${API}/admin/onboarding/${id}/approve` : `${API}/admin/onboarding/${id}/reject`;
+    try {
+      const res = await fetch(endpoint, { method: "PUT" });
+      if (res.ok) {
+        setReqs(p => p.map(r => r.id === id ? { ...r, status: st } : r));
+        if (st === "approved") fetchVehicles();
+      } else { alert("Action failed. Try again."); }
+    } catch { alert("Network error. Try again."); }
   };
   const handleLogin = (u) => { setUser(u); if (u.type === "supplier") { setView("public"); setPage("supplier-dashboard"); } };
   const logout = () => { setUser(null); setPage("home"); };
   const navItems = view === "public" ? [{ k: "home", l: "Home" }, { k: "gitti", l: "Gitti" }, { k: "morang", l: "Morang" }, { k: "lorry", l: "Lorries" }, { k: "mandis", l: "Mandis" }, { k: "onboarding", l: "Become a Supplier" }, ...(user?.type === "supplier" ? [{ k: "supplier-dashboard", l: "My Dashboard" }] : [])] : [{ k: "dashboard", l: "Dashboard" }, { k: "a-gitti", l: "Gitti" }, { k: "a-morang", l: "Morang" }, { k: "a-lorry", l: "Lorries" }, { k: "a-mandis", l: "Mandis" }, { k: "a-onboarding", l: "Onboarding" }];
   const activePage = view === "public" ? page : adminPage; const setActivePage = view === "public" ? setPage : setAdminPage;
-  const render = () => { if (view === "public") { switch (page) { case "gitti": return <GittiPage gitti={gitti} />; case "morang": return <MorangPage morang={morang} />; case "lorry": return <LorryPage lorries={lorries} />; case "mandis": return <MandisPage lorries={lorries} gitti={gitti} morang={morang} />; case "onboarding": return <OnboardingPage addReq={addReq} />; case "supplier-dashboard": return user?.type === "supplier" ? <SupplierDashboard user={user} gitti={gitti} morang={morang} lorries={lorries} setGitti={setGitti} setMorang={setMorang} setLorries={setLorries} logout={logout} /> : <HomePage setPage={setPage} setLoginModal={setLoginModal} />; default: return <HomePage setPage={setPage} setLoginModal={setLoginModal} />; } } else { switch (adminPage) { case "a-gitti": return <AdminList title="Gitti" data={gitti} cols={[{ k: "size", label: "Size" }, { k: "crusher_name", label: "Crusher" }, { k: "price_per_cft", label: "₹/CFT" }, { k: "lorry_registration", label: "Lorry" }, { k: "gross_weight_tonnes", label: "T" }, { k: "availability", label: "Status" }]} />; case "a-morang": return <AdminList title="Morang" data={morang} cols={[{ k: "type", label: "Type" }, { k: "source_location", label: "Source" }, { k: "price_per_tonne", label: "₹/T" }, { k: "lorry_registration", label: "Lorry" }, { k: "availability", label: "Status" }]} />; case "a-lorry": return <AdminList title="Lorries" data={lorries} cols={[{ k: "registration_number", label: "Reg" }, { k: "driver_name", label: "Driver" }, { k: "owner_name", label: "Owner" }, { k: "mandi", label: "Mandi" }, { k: "gross_weight_tonnes", label: "T" }, { k: "availability", label: "Status" }]} />; case "a-mandis": return <AdminList title="Mandis" data={MANDIS} cols={[{ k: "name", label: "Name" }, { k: "district", label: "District" }, { k: "slug", label: "Slug" }]} />; case "a-onboarding": return <AdminOnb reqs={reqs} updateReq={updateReq} />; default: return <AdminDash reqs={reqs} lorries={lorries} updateReq={updateReq} removeLorry={removeLorry} />; } } };
+  const render = () => { if (view === "public") { switch (page) { case "gitti": return <GittiPage gitti={gitti} />; case "morang": return <MorangPage morang={morang} />; case "lorry": return <LorryPage lorries={lorries} />; case "mandis": return <MandisPage lorries={lorries} gitti={gitti} morang={morang} />; case "onboarding": return <OnboardingPage fetchReqs={fetchReqs} />; case "supplier-dashboard": return user?.type === "supplier" ? <SupplierDashboard user={user} gitti={gitti} morang={morang} lorries={lorries} setGitti={setGitti} setMorang={setMorang} setLorries={setLorries} logout={logout} /> : <HomePage setPage={setPage} setLoginModal={setLoginModal} />; default: return <HomePage setPage={setPage} setLoginModal={setLoginModal} />; } } else { switch (adminPage) { case "a-gitti": return <AdminList title="Gitti" data={gitti} cols={[{ k: "size", label: "Size" }, { k: "crusher_name", label: "Crusher" }, { k: "price_per_cft", label: "₹/CFT" }, { k: "lorry_registration", label: "Lorry" }, { k: "gross_weight_tonnes", label: "T" }, { k: "availability", label: "Status" }]} />; case "a-morang": return <AdminList title="Morang" data={morang} cols={[{ k: "type", label: "Type" }, { k: "source_location", label: "Source" }, { k: "price_per_tonne", label: "₹/T" }, { k: "lorry_registration", label: "Lorry" }, { k: "availability", label: "Status" }]} />; case "a-lorry": return <AdminList title="Lorries" data={lorries} cols={[{ k: "registration_number", label: "Reg" }, { k: "driver_name", label: "Driver" }, { k: "owner_name", label: "Owner" }, { k: "mandi", label: "Mandi" }, { k: "gross_weight_tonnes", label: "T" }, { k: "availability", label: "Status" }]} />; case "a-mandis": return <AdminList title="Mandis" data={MANDIS} cols={[{ k: "name", label: "Name" }, { k: "district", label: "District" }, { k: "slug", label: "Slug" }]} />; case "a-onboarding": return <AdminOnb reqs={reqs} updateReq={updateReq} />; default: return <AdminDash reqs={reqs} lorries={lorries} updateReq={updateReq} removeLorry={removeLorry} />; } } };
   return (
     <div className="min-h-screen bg-gray-50">
       {loginModal && <LoginModal type={loginModal} onClose={() => setLoginModal(null)} onLogin={handleLogin} />}
