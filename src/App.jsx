@@ -1,5 +1,17 @@
 import { useState, useEffect, useRef } from "react";
 
+function useLocalStorage(key, initial) {
+  const [val, setVal] = useState(() => {
+    try { const s = localStorage.getItem(key); return s ? JSON.parse(s) : (typeof initial === "function" ? initial() : initial); } catch { return typeof initial === "function" ? initial() : initial; }
+  });
+  const set = (v) => setVal(prev => {
+    const next = typeof v === "function" ? v(prev) : v;
+    try { localStorage.setItem(key, JSON.stringify(next)); } catch {}
+    return next;
+  });
+  return [val, set];
+}
+
 const TRUCK_IMG = "data:image/svg+xml," + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 260"><defs><linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#fde68a"/><stop offset="100%" stop-color="#f3f4f6"/></linearGradient></defs><rect width="400" height="260" fill="url(#sky)" rx="12"/><rect x="40" y="65" width="320" height="140" rx="10" fill="#fff" stroke="#e5e7eb" stroke-width="2"/><rect x="55" y="75" width="290" height="65" rx="6" fill="#dbeafe"/><rect x="70" y="82" width="260" height="50" rx="3" fill="#93c5fd" opacity="0.4"/><rect x="130" y="92" width="140" height="30" rx="3" fill="#bfdbfe" opacity="0.5"/><rect x="55" y="148" width="130" height="22" rx="11" fill="#fbbf24"/><rect x="215" y="148" width="130" height="22" rx="11" fill="#fbbf24"/><circle cx="110" cy="205" r="24" fill="#1f2937"/><circle cx="110" cy="205" r="14" fill="#4b5563"/><circle cx="110" cy="205" r="6" fill="#9ca3af"/><circle cx="290" cy="205" r="24" fill="#1f2937"/><circle cx="290" cy="205" r="14" fill="#4b5563"/><circle cx="290" cy="205" r="6" fill="#9ca3af"/><rect x="40" y="78" width="22" height="55" rx="5" fill="#3b82f6"/><rect x="338" y="78" width="22" height="55" rx="5" fill="#3b82f6"/><text x="200" y="40" text-anchor="middle" fill="#374151" font-size="15" font-family="sans-serif" font-weight="bold">TATA SIGNA</text><text x="200" y="57" text-anchor="middle" fill="#6b7280" font-size="10" font-family="sans-serif">Construction Material Supplier</text><rect x="140" y="178" width="120" height="20" rx="4" fill="#fbbf24" stroke="#d97706" stroke-width="1"/><text x="200" y="192" text-anchor="middle" fill="#1f2937" font-size="9" font-family="monospace" font-weight="bold">IND</text></svg>`);
 
 const LogoSVG = ({ size = 40 }) => (
@@ -291,8 +303,10 @@ const AdminList = ({ title, data, cols }) => (<div><h2 className="text-2xl font-
 // ─── MAIN ───
 export default function App() {
   const [view, setView] = useState("public"); const [page, setPage] = useState("home"); const [adminPage, setAdminPage] = useState("dashboard");
-  const [reqs, setReqs] = useState([]); const [mobileMenu, setMobileMenu] = useState(false); const [loginModal, setLoginModal] = useState(null); const [user, setUser] = useState(null);
-  const [gitti, setGitti] = useState(initGitti); const [morang, setMorang] = useState(initMorang); const [lorries, setLorries] = useState(initLorries);
+  const [reqs, setReqs] = useLocalStorage("bm_reqs", []);
+  const [lorries, setLorries] = useLocalStorage("bm_lorries", initLorries);
+  const [mobileMenu, setMobileMenu] = useState(false); const [loginModal, setLoginModal] = useState(null); const [user, setUser] = useState(null);
+  const [gitti, setGitti] = useState(initGitti); const [morang, setMorang] = useState(initMorang);
   const addReq = (r) => setReqs(p => [r, ...p]);
   const removeLorry = (id) => setLorries(p => p.filter(l => l.id !== id));
   const updateReq = (id, st, reqObj) => {
