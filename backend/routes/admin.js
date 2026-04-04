@@ -57,9 +57,9 @@ router.put('/onboarding/:id/approve', async (req, res) => {
     const mandiId = mandi.rows.length > 0 ? mandi.rows[0].id : 1;
 
     await db.query(
-      `INSERT INTO vehicles (registration_number, vehicle_type, gross_weight_tonnes, driver_name, driver_phone, owner_name, owner_phone, mandi_id, supplier_id, parivahan_verified, parivahan_data)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) ON CONFLICT (registration_number) DO NOTHING`,
-      [r.registration_number, 'Tata Signa', r.gross_weight_tonnes || 40, r.driver_name, r.driver_phone, r.owner_name, r.owner_phone, mandiId, supplier.rows[0].id, r.parivahan_verified, r.parivahan_data]
+      `INSERT INTO vehicles (registration_number, vehicle_type, gross_weight_tonnes, driver_name, driver_phone, owner_name, owner_phone, mandi_id, supplier_id, parivahan_verified, parivahan_data, image_url)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) ON CONFLICT (registration_number) DO NOTHING`,
+      [r.registration_number, 'Tata Signa', r.gross_weight_tonnes || 40, r.driver_name, r.driver_phone, r.owner_name, r.owner_phone, mandiId, supplier.rows[0].id, r.parivahan_verified, r.parivahan_data, r.image_url || null]
     );
 
     await db.query("UPDATE onboarding_requests SET status = 'approved', updated_at = NOW() WHERE id = $1", [id]);

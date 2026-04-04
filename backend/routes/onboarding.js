@@ -6,21 +6,21 @@ router.post('/', async (req, res) => {
   try {
     const { owner_name, driver_name, driver_phone, owner_phone, registration_number,
             gross_weight_tonnes, product_type, product_variant, price,
-            source_location, mandi, parivahan_verified, parivahan_data } = req.body;
+            source_location, mandi, parivahan_verified, parivahan_data, image_url } = req.body;
 
     if (!owner_name || !driver_phone || !registration_number) {
       return res.status(400).json({ error: 'owner_name, driver_phone, registration_number required' });
     }
 
     const result = await db.query(
-      `INSERT INTO onboarding_requests 
+      `INSERT INTO onboarding_requests
        (owner_name, driver_name, driver_phone, owner_phone, registration_number,
         gross_weight_tonnes, product_type, product_variant, price,
-        source_location, mandi, parivahan_verified, parivahan_data)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
+        source_location, mandi, parivahan_verified, parivahan_data, image_url)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`,
       [owner_name, driver_name, driver_phone, owner_phone, registration_number,
        gross_weight_tonnes, product_type, product_variant, price,
-       source_location, mandi, parivahan_verified || false, parivahan_data || null]
+       source_location, mandi, parivahan_verified || false, parivahan_data || null, image_url || null]
     );
 
     res.status(201).json({ success: true, request: result.rows[0] });
