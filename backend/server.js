@@ -15,6 +15,8 @@ const mandiRoutes = require('./routes/mandis');
 const onboardingRoutes = require('./routes/onboarding');
 const adminRoutes = require('./routes/admin');
 const uploadsRoutes = require('./routes/uploads');
+const ordersRoutes = require('./routes/orders');
+const trackRoutes = require('./routes/track');
 
 const UPLOAD_DIR = process.env.UPLOAD_DIR || '/app/uploads';
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
@@ -46,6 +48,8 @@ app.use('/api/mandis', mandiRoutes);
 app.use('/api/onboarding', onboardingRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/uploads', uploadsRoutes);
+app.use('/api/orders', ordersRoutes);
+app.use('/api/track', trackRoutes);
 app.use('/uploads', express.static(UPLOAD_DIR));
 
 app.use((err, req, res, next) => {
