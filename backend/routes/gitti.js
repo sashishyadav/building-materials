@@ -50,6 +50,18 @@ router.put('/:id/price', authenticate, async (req, res) => {
 
     const old = listing.rows[0];
 
+    // Rate limit: max 3 price changes per 24h per listing
+    if (price_per_cft !== undefined) {
+      const last24h = new Date(Date.now() - 86400000);
+      const rateCheck = await db.query(
+        `SELECT COUNT(*)::int as count FROM price_history WHERE listing_type = 'gitti' AND listing_id = $1 AND created_at > $2`,
+        [id, last24h]
+      );
+      if (rateCheck.rows[0].count >= 3) {
+        return res.status(429).json({ error: 'Price can only be changed 3 times in 24 hours' });
+      }
+    }
+
     // Update price
     if (price_per_cft !== undefined) {
       await db.query('UPDATE gitti_listings SET price_per_cft = $1, updated_at = NOW() WHERE id = $2', [price_per_cft, id]);

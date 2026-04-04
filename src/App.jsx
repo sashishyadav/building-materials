@@ -103,8 +103,8 @@ const LoginModal = ({ type, onClose, onLogin }) => {
   const [phone, setPhone] = useState(""); const [otp, setOtp] = useState(""); const [step, setStep] = useState("phone"); const [genOtp, setGenOtp] = useState(""); const [error, setError] = useState(""); const [timer, setTimer] = useState(0);
   useEffect(() => { if (timer > 0) { const t = setTimeout(() => setTimer(timer - 1), 1000); return () => clearTimeout(t); } }, [timer]);
   const fmtTime = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
-  const sendOtp = () => { if (phone.length !== 10) { setError("Enter valid 10-digit number"); return; } const code = String(Math.floor(1000 + Math.random() * 9000)); setGenOtp(code); setStep("otp"); setError(""); setTimer(180); };
-  const verifyOtp = () => { if (otp === genOtp) { onLogin({ phone, type }); onClose(); } else setError("Invalid OTP. Please check and try again."); };
+  const sendOtp = async () => { if (phone.length !== 10) { setError("Enter valid 10-digit number"); return; } try { const r = await fetch(`${API}/auth/send-otp`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ phone, type }) }); const d = await r.json(); if (!r.ok) { setError(d.error || "Failed to send OTP"); return; } setGenOtp(d.otp || ""); setStep("otp"); setError(""); setTimer(180); } catch { setError("Network error. Try again."); } };
+  const verifyOtp = async () => { try { const r = await fetch(`${API}/auth/verify-otp`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ phone, otp, type }) }); const d = await r.json(); if (!r.ok) { setError(d.error || "Invalid OTP"); return; } onLogin({ ...d.user, token: d.token }); onClose(); } catch { setError("Network error. Try again."); } };
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
       <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-2xl" onClick={e => e.stopPropagation()}>
@@ -141,29 +141,36 @@ const LoginModal = ({ type, onClose, onLogin }) => {
 };
 
 // ─── SUPPLIER DASHBOARD ───
-const SupplierDashboard = ({ user, gitti, morang, lorries, setGitti, setMorang, setLorries, logout }) => {
+const SupplierDashboard = ({ user, gitti, morang, lorries, setLorries, fetchGitti, fetchMorang, logout }) => {
   const myL = lorries.filter(l => l.supplier_phone === user.phone || l.driver_phone === user.phone || l.owner_phone === user.phone);
   const myG = gitti.filter(g => myL.some(l => l.registration_number === g.lorry_registration));
   const myM = morang.filter(m => myL.some(l => l.registration_number === m.lorry_registration));
   const [eItem, setEItem] = useState(null); const [eType, setEType] = useState(""); const [ePrice, setEPrice] = useState(""); const [eTonnes, setETonnes] = useState("");
-  const [rateChanges, setRateChanges] = useState({});
-  const getRateChangesLast24h = (key) => { const now = Date.now(); return (rateChanges[key] || []).filter(t => now - t < 86400000); };
-  const save = () => {
-    if (eType !== "lorry") {
-      const key = `${eType}-${eItem.id}`;
-      const recent = getRateChangesLast24h(key);
-      if (recent.length >= 3) { alert("Rate can only be changed 3 times in 24 hours for this listing."); return; }
-      setRateChanges(p => ({ ...p, [key]: [...(p[key] || []).filter(t => Date.now() - t < 86400000), Date.now()] }));
-    }
-    if (eType === "gitti") setGitti(p => p.map(g => g.id === eItem.id ? { ...g, price_per_cft: Number(ePrice), gross_weight_tonnes: Number(eTonnes) } : g));
-    else if (eType === "morang") setMorang(p => p.map(m => m.id === eItem.id ? { ...m, price_per_tonne: Number(ePrice), gross_weight_tonnes: Number(eTonnes) } : m));
-    else setLorries(p => p.map(l => l.id === eItem.id ? { ...l, gross_weight_tonnes: Number(eTonnes) } : l));
-    setEItem(null);
+  const [saving, setSaving] = useState(false);
+  const save = async () => {
+    setSaving(true);
+    try {
+      if (eType === "gitti") {
+        const res = await fetch(`${API}/gitti/${eItem.id}/price`, { method: "PUT", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${user.token}` }, body: JSON.stringify({ price_per_cft: Number(ePrice), gross_weight_tonnes: Number(eTonnes) }) });
+        const d = await res.json();
+        if (!res.ok) { alert(d.error || "Failed to update price"); return; }
+        fetchGitti();
+      } else if (eType === "morang") {
+        const res = await fetch(`${API}/morang/${eItem.id}/price`, { method: "PUT", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${user.token}` }, body: JSON.stringify({ price_per_tonne: Number(ePrice), gross_weight_tonnes: Number(eTonnes) }) });
+        const d = await res.json();
+        if (!res.ok) { alert(d.error || "Failed to update price"); return; }
+        fetchMorang();
+      } else {
+        setLorries(p => p.map(l => l.id === eItem.id ? { ...l, gross_weight_tonnes: Number(eTonnes) } : l));
+      }
+      setEItem(null);
+    } catch { alert("Network error. Try again."); }
+    finally { setSaving(false); }
   };
   return (
     <div>
       <div className="flex justify-between items-center mb-6 flex-wrap gap-3"><div><h2 className="text-2xl font-bold text-gray-800">Supplier Dashboard</h2><p className="text-gray-500 text-sm">+91 {user.phone}</p></div><button onClick={logout} className="text-sm bg-red-50 text-red-600 px-4 py-2 rounded-lg hover:bg-red-100">Logout</button></div>
-      {eItem && <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setEItem(null)}><div className="bg-white rounded-2xl p-6 w-full max-w-sm" onClick={e => e.stopPropagation()}><h3 className="text-lg font-bold text-gray-800 mb-4">Edit {eType.charAt(0).toUpperCase() + eType.slice(1)}</h3>{eType !== "lorry" && <div className="mb-3"><label className="block text-sm font-medium text-gray-700 mb-1">{eType === "gitti" ? "Price (₹/CFT)" : "Price (₹/Tonne)"}</label><input type="number" value={ePrice} onChange={e => setEPrice(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" /></div>}<div className="mb-4"><label className="block text-sm font-medium text-gray-700 mb-1">Tonnes</label><input type="number" value={eTonnes} onChange={e => setETonnes(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" /></div><div className="flex gap-3"><button onClick={save} className="flex-1 bg-green-600 text-white py-2 rounded-lg text-sm font-medium">Save</button><button onClick={() => setEItem(null)} className="flex-1 border border-gray-300 py-2 rounded-lg text-sm text-gray-600">Cancel</button></div></div></div>}
+      {eItem && <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setEItem(null)}><div className="bg-white rounded-2xl p-6 w-full max-w-sm" onClick={e => e.stopPropagation()}><h3 className="text-lg font-bold text-gray-800 mb-4">Edit {eType.charAt(0).toUpperCase() + eType.slice(1)}</h3>{eType !== "lorry" && <div className="mb-3"><label className="block text-sm font-medium text-gray-700 mb-1">{eType === "gitti" ? "Price (₹/CFT)" : "Price (₹/Tonne)"}</label><input type="number" value={ePrice} onChange={e => setEPrice(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" /></div>}<div className="mb-4"><label className="block text-sm font-medium text-gray-700 mb-1">Tonnes</label><input type="number" value={eTonnes} onChange={e => setETonnes(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" /></div><div className="flex gap-3"><button onClick={save} disabled={saving} className="flex-1 bg-green-600 text-white py-2 rounded-lg text-sm font-medium disabled:opacity-50">{saving ? "Saving..." : "Save"}</button><button onClick={() => setEItem(null)} className="flex-1 border border-gray-300 py-2 rounded-lg text-sm text-gray-600">Cancel</button></div></div></div>}
       <h3 className="font-semibold text-gray-800 mb-3">My Vehicles ({myL.length})</h3>
       <div className="grid gap-3 mb-6">{myL.map(l => <div key={l.id} className="bg-white border border-gray-200 rounded-xl p-4 flex justify-between items-center flex-wrap gap-2"><div className="flex items-center gap-3"><div className="text-2xl">🚛</div><div><div className="font-mono font-bold text-gray-800">{l.registration_number}</div><div className="text-gray-400 text-xs">{l.vehicle_type} • {l.gross_weight_tonnes}T • {l.mandi}</div></div></div><div className="flex items-center gap-2">{availBadge(l.availability)}<button onClick={() => { setEItem(l); setEType("lorry"); setETonnes(String(l.gross_weight_tonnes)); }} className="text-xs bg-blue-50 text-blue-600 px-3 py-1 rounded-lg hover:bg-blue-100">Edit</button></div></div>)}{myL.length === 0 && <div className="text-gray-400 text-sm bg-gray-50 rounded-xl p-6 text-center">No vehicles linked to your phone</div>}</div>
       <h3 className="font-semibold text-gray-800 mb-3">My Gitti ({myG.length})</h3>
@@ -314,6 +321,8 @@ const AdminList = ({ title, data, cols }) => (<div><h2 className="text-2xl font-
 // ─── helpers ───
 const toVehicle = (v) => ({ id: v.id, registration_number: v.registration_number, gross_weight_tonnes: Number(v.gross_weight_tonnes), driver_name: v.driver_name, driver_phone: v.driver_phone, owner_name: v.owner_name, owner_phone: v.owner_phone, mandi: v.mandi_name || v.mandi, availability: v.availability, vehicle_type: v.vehicle_type || "Tata Signa", supplier_phone: v.driver_phone, image_url: v.image_url || null });
 const toReq = (r) => ({ id: r.id, owner_name: r.owner_name, driver_name: r.driver_name, driver_phone: r.driver_phone, owner_phone: r.owner_phone, registration_number: r.registration_number, gross_weight_tonnes: r.gross_weight_tonnes, product_type: r.product_type, product_variant: r.product_variant, price: r.price, source_location: r.source_location, mandi: r.mandi, status: r.status, verified: r.parivahan_verified });
+const toGitti = (g) => ({ id: g.id, size: g.size, crusher_name: g.crusher_name, crusher_location: g.crusher_location, price_per_cft: Number(g.price_per_cft), district: "Ambedkar Nagar", lorry_registration: g.registration_number, gross_weight_tonnes: Number(g.gross_weight_tonnes || 40), driver_phone: g.driver_phone, owner_phone: g.owner_phone, availability: g.vehicle_availability || g.availability || "available" });
+const toMorang = (m) => ({ id: m.id, type: m.type, use_case: m.use_case, source_location: m.source_location, price_per_tonne: Number(m.price_per_tonne), district: "Ambedkar Nagar", lorry_registration: m.registration_number, gross_weight_tonnes: Number(m.gross_weight_tonnes || 40), driver_phone: m.driver_phone, owner_phone: m.owner_phone, availability: m.vehicle_availability || m.availability || "available" });
 
 // ─── MAIN ───
 export default function App() {
@@ -325,8 +334,10 @@ export default function App() {
 
   const fetchVehicles = () => fetch(`${API}/vehicles`).then(r => r.json()).then(data => { if (Array.isArray(data) && data.length) setLorries(data.map(toVehicle)); }).catch(() => {});
   const fetchReqs = () => fetch(`${API}/admin/onboarding`).then(r => r.json()).then(data => { if (Array.isArray(data)) setReqs(data.map(toReq)); }).catch(() => {});
+  const fetchGitti = () => fetch(`${API}/gitti`).then(r => r.json()).then(data => { if (Array.isArray(data) && data.length) setGitti(data.map(toGitti)); }).catch(() => {});
+  const fetchMorang = () => fetch(`${API}/morang`).then(r => r.json()).then(data => { if (Array.isArray(data) && data.length) setMorang(data.map(toMorang)); }).catch(() => {});
 
-  useEffect(() => { fetchVehicles(); fetchReqs(); }, []);
+  useEffect(() => { fetchVehicles(); fetchReqs(); fetchGitti(); fetchMorang(); }, []);
 
   const removeLorry = async (id) => {
     setLorries(p => p.filter(l => l.id !== id));
@@ -337,7 +348,7 @@ export default function App() {
       const res = await fetch(endpoint, { method: "PUT" });
       if (res.ok) {
         setReqs(p => p.map(r => r.id === id ? { ...r, status: st } : r));
-        if (st === "approved") fetchVehicles();
+        if (st === "approved") { fetchVehicles(); fetchGitti(); fetchMorang(); }
       } else { alert("Action failed. Try again."); }
     } catch { alert("Network error. Try again."); }
   };
@@ -345,7 +356,7 @@ export default function App() {
   const logout = () => { setUser(null); setPage("home"); };
   const navItems = view === "public" ? [{ k: "home", l: "Home" }, { k: "gitti", l: "Gitti" }, { k: "morang", l: "Morang" }, { k: "lorry", l: "Lorries" }, { k: "mandis", l: "Mandis" }, { k: "onboarding", l: "Become a Supplier" }, ...(user?.type === "supplier" ? [{ k: "supplier-dashboard", l: "My Dashboard" }] : [])] : [{ k: "dashboard", l: "Dashboard" }, { k: "a-gitti", l: "Gitti" }, { k: "a-morang", l: "Morang" }, { k: "a-lorry", l: "Lorries" }, { k: "a-mandis", l: "Mandis" }, { k: "a-onboarding", l: "Onboarding" }];
   const activePage = view === "public" ? page : adminPage; const setActivePage = view === "public" ? setPage : setAdminPage;
-  const render = () => { if (view === "public") { switch (page) { case "gitti": return <GittiPage gitti={gitti} />; case "morang": return <MorangPage morang={morang} />; case "lorry": return <LorryPage lorries={lorries} />; case "mandis": return <MandisPage lorries={lorries} gitti={gitti} morang={morang} />; case "onboarding": return <OnboardingPage fetchReqs={fetchReqs} />; case "supplier-dashboard": return user?.type === "supplier" ? <SupplierDashboard user={user} gitti={gitti} morang={morang} lorries={lorries} setGitti={setGitti} setMorang={setMorang} setLorries={setLorries} logout={logout} /> : <HomePage setPage={setPage} setLoginModal={setLoginModal} />; default: return <HomePage setPage={setPage} setLoginModal={setLoginModal} />; } } else { switch (adminPage) { case "a-gitti": return <AdminList title="Gitti" data={gitti} cols={[{ k: "size", label: "Size" }, { k: "crusher_name", label: "Crusher" }, { k: "price_per_cft", label: "₹/CFT" }, { k: "lorry_registration", label: "Lorry" }, { k: "gross_weight_tonnes", label: "T" }, { k: "availability", label: "Status" }]} />; case "a-morang": return <AdminList title="Morang" data={morang} cols={[{ k: "type", label: "Type" }, { k: "source_location", label: "Source" }, { k: "price_per_tonne", label: "₹/T" }, { k: "lorry_registration", label: "Lorry" }, { k: "availability", label: "Status" }]} />; case "a-lorry": return <AdminList title="Lorries" data={lorries} cols={[{ k: "registration_number", label: "Reg" }, { k: "driver_name", label: "Driver" }, { k: "owner_name", label: "Owner" }, { k: "mandi", label: "Mandi" }, { k: "gross_weight_tonnes", label: "T" }, { k: "availability", label: "Status" }]} />; case "a-mandis": return <AdminList title="Mandis" data={MANDIS} cols={[{ k: "name", label: "Name" }, { k: "district", label: "District" }, { k: "slug", label: "Slug" }]} />; case "a-onboarding": return <AdminOnb reqs={reqs} updateReq={updateReq} />; default: return <AdminDash reqs={reqs} lorries={lorries} updateReq={updateReq} removeLorry={removeLorry} />; } } };
+  const render = () => { if (view === "public") { switch (page) { case "gitti": return <GittiPage gitti={gitti} />; case "morang": return <MorangPage morang={morang} />; case "lorry": return <LorryPage lorries={lorries} />; case "mandis": return <MandisPage lorries={lorries} gitti={gitti} morang={morang} />; case "onboarding": return <OnboardingPage fetchReqs={fetchReqs} />; case "supplier-dashboard": return user?.type === "supplier" ? <SupplierDashboard user={user} gitti={gitti} morang={morang} lorries={lorries} setLorries={setLorries} fetchGitti={fetchGitti} fetchMorang={fetchMorang} logout={logout} /> : <HomePage setPage={setPage} setLoginModal={setLoginModal} />; default: return <HomePage setPage={setPage} setLoginModal={setLoginModal} />; } } else { switch (adminPage) { case "a-gitti": return <AdminList title="Gitti" data={gitti} cols={[{ k: "size", label: "Size" }, { k: "crusher_name", label: "Crusher" }, { k: "price_per_cft", label: "₹/CFT" }, { k: "lorry_registration", label: "Lorry" }, { k: "gross_weight_tonnes", label: "T" }, { k: "availability", label: "Status" }]} />; case "a-morang": return <AdminList title="Morang" data={morang} cols={[{ k: "type", label: "Type" }, { k: "source_location", label: "Source" }, { k: "price_per_tonne", label: "₹/T" }, { k: "lorry_registration", label: "Lorry" }, { k: "availability", label: "Status" }]} />; case "a-lorry": return <AdminList title="Lorries" data={lorries} cols={[{ k: "registration_number", label: "Reg" }, { k: "driver_name", label: "Driver" }, { k: "owner_name", label: "Owner" }, { k: "mandi", label: "Mandi" }, { k: "gross_weight_tonnes", label: "T" }, { k: "availability", label: "Status" }]} />; case "a-mandis": return <AdminList title="Mandis" data={MANDIS} cols={[{ k: "name", label: "Name" }, { k: "district", label: "District" }, { k: "slug", label: "Slug" }]} />; case "a-onboarding": return <AdminOnb reqs={reqs} updateReq={updateReq} />; default: return <AdminDash reqs={reqs} lorries={lorries} updateReq={updateReq} removeLorry={removeLorry} />; } } };
   return (
     <div className="min-h-screen bg-gray-50">
       {loginModal && <LoginModal type={loginModal} onClose={() => setLoginModal(null)} onLogin={handleLogin} />}

@@ -47,6 +47,18 @@ router.put('/:id/price', authenticate, async (req, res) => {
 
     const old = listing.rows[0];
 
+    // Rate limit: max 3 price changes per 24h per listing
+    if (price_per_tonne !== undefined) {
+      const last24h = new Date(Date.now() - 86400000);
+      const rateCheck = await db.query(
+        `SELECT COUNT(*)::int as count FROM price_history WHERE listing_type = 'morang' AND listing_id = $1 AND created_at > $2`,
+        [id, last24h]
+      );
+      if (rateCheck.rows[0].count >= 3) {
+        return res.status(429).json({ error: 'Price can only be changed 3 times in 24 hours' });
+      }
+    }
+
     if (price_per_tonne !== undefined) {
       await db.query('UPDATE morang_listings SET price_per_tonne = $1, updated_at = NOW() WHERE id = $2', [price_per_tonne, id]);
       await db.query(
