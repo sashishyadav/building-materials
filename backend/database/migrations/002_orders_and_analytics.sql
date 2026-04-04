@@ -1,7 +1,7 @@
 CREATE TABLE IF NOT EXISTS orders (
   id SERIAL PRIMARY KEY,
   listing_type VARCHAR(10) NOT NULL,
-  listing_id INTEGER NOT NULL,
+  listing_id VARCHAR(50) NOT NULL,
   customer_name VARCHAR(200),
   customer_phone VARCHAR(20) NOT NULL,
   quantity NUMERIC,

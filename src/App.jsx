@@ -390,6 +390,8 @@ export default function App() {
     fetch(`${API}/track`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ page: "home" }) }).catch(() => {});
   }, []);
 
+  useEffect(() => { if (view === "admin") { fetchOrders(); fetchAnalytics(); fetchReqs(); fetchVehicles(); } }, [view]);
+
   const removeLorry = async (id) => {
     if (!window.confirm("Remove this vehicle and all its listings?")) return;
     try {
