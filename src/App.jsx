@@ -148,17 +148,20 @@ const SupplierDashboard = ({ user, gitti, morang, lorries, setLorries, fetchGitt
   const myM = morang.filter(m => myL.some(l => l.registration_number === m.lorry_registration));
   const [eItem, setEItem] = useState(null); const [eType, setEType] = useState(""); const [ePrice, setEPrice] = useState(""); const [eTonnes, setETonnes] = useState("");
   const [saving, setSaving] = useState(false);
+  const [rateLimit, setRateLimit] = useState(null);
   const save = async () => {
     setSaving(true);
     try {
       if (eType === "gitti") {
         const res = await fetch(`${API}/gitti/${eItem.id}/price`, { method: "PUT", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${user.token}` }, body: JSON.stringify({ price_per_cft: Number(ePrice), gross_weight_tonnes: Number(eTonnes) }) });
         const d = await res.json();
+        if (res.status === 429) { setRateLimit(d); setEItem(null); return; }
         if (!res.ok) { alert(d.error || "Failed to update price"); return; }
         fetchGitti();
       } else if (eType === "morang") {
         const res = await fetch(`${API}/morang/${eItem.id}/price`, { method: "PUT", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${user.token}` }, body: JSON.stringify({ price_per_tonne: Number(ePrice), gross_weight_tonnes: Number(eTonnes) }) });
         const d = await res.json();
+        if (res.status === 429) { setRateLimit(d); setEItem(null); return; }
         if (!res.ok) { alert(d.error || "Failed to update price"); return; }
         fetchMorang();
       } else {
@@ -172,6 +175,7 @@ const SupplierDashboard = ({ user, gitti, morang, lorries, setLorries, fetchGitt
     <div>
       <div className="flex justify-between items-center mb-6 flex-wrap gap-3"><div><h2 className="text-2xl font-bold text-gray-800">Supplier Dashboard</h2><p className="text-gray-500 text-sm">+91 {user.phone}</p></div><button onClick={logout} className="text-sm bg-red-50 text-red-600 px-4 py-2 rounded-lg hover:bg-red-100">Logout</button></div>
       {eItem && <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setEItem(null)}><div className="bg-white rounded-2xl p-6 w-full max-w-sm" onClick={e => e.stopPropagation()}><h3 className="text-lg font-bold text-gray-800 mb-4">Edit {eType.charAt(0).toUpperCase() + eType.slice(1)}</h3>{eType !== "lorry" && <div className="mb-3"><label className="block text-sm font-medium text-gray-700 mb-1">{eType === "gitti" ? "Price (₹/CFT)" : "Price (₹/Tonne)"}</label><input type="number" value={ePrice} onChange={e => setEPrice(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" /></div>}<div className="mb-4"><label className="block text-sm font-medium text-gray-700 mb-1">Tonnes</label><input type="number" value={eTonnes} onChange={e => setETonnes(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" /></div><div className="flex gap-3"><button onClick={save} disabled={saving} className="flex-1 bg-green-600 text-white py-2 rounded-lg text-sm font-medium disabled:opacity-50">{saving ? "Saving..." : "Save"}</button><button onClick={() => setEItem(null)} className="flex-1 border border-gray-300 py-2 rounded-lg text-sm text-gray-600">Cancel</button></div></div></div>}
+      {rateLimit && (() => { const next = new Date(rateLimit.next_available_at); const diff = next - new Date(); const hrs = Math.max(0, Math.floor(diff / 3600000)); const mins = Math.max(0, Math.floor((diff % 3600000) / 60000)); return (<div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setRateLimit(null)}><div className="bg-white rounded-2xl p-6 w-full max-w-sm text-center" onClick={e => e.stopPropagation()}><div className="text-5xl mb-3">⏳</div><h3 className="text-lg font-bold text-red-600 mb-2">Price Change Limit Reached</h3><p className="text-gray-600 text-sm mb-4">You have already changed prices <span className="font-bold">{rateLimit.changes_in_24h} times</span> in the last 24 hours. Maximum 3 changes allowed.</p><div className="bg-orange-50 border border-orange-200 rounded-xl p-4 mb-4"><p className="text-orange-800 text-sm font-medium">You can change the price again after</p><p className="text-2xl font-bold text-orange-600 mt-1">{hrs}h {mins}m</p><p className="text-orange-400 text-xs mt-1">{next.toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}</p></div><button onClick={() => setRateLimit(null)} className="w-full bg-gray-800 text-white py-2.5 rounded-lg text-sm font-medium hover:bg-gray-900">OK, Got it</button></div></div>); })()}
       <h3 className="font-semibold text-gray-800 mb-3">My Vehicles ({myL.length})</h3>
       <div className="grid gap-3 mb-6">{myL.map(l => <div key={l.id} className="bg-white border border-gray-200 rounded-xl p-4 flex justify-between items-center flex-wrap gap-2"><div className="flex items-center gap-3"><div className="text-2xl">🚛</div><div><div className="font-mono font-bold text-gray-800">{l.registration_number}</div><div className="text-gray-400 text-xs">{l.vehicle_type} • {l.gross_weight_tonnes}T • {l.mandi}</div></div></div><div className="flex items-center gap-2">{availBadge(l.availability)}<button onClick={() => { setEItem(l); setEType("lorry"); setETonnes(String(l.gross_weight_tonnes)); }} className="text-xs bg-blue-50 text-blue-600 px-3 py-1 rounded-lg hover:bg-blue-100">Edit</button></div></div>)}{myL.length === 0 && <div className="text-gray-400 text-sm bg-gray-50 rounded-xl p-6 text-center">No vehicles linked to your phone</div>}</div>
       <h3 className="font-semibold text-gray-800 mb-3">My Gitti ({myG.length})</h3>
