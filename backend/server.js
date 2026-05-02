@@ -4,6 +4,8 @@ const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 require('dotenv').config();
 
+const path = require('path');
+const fs = require('fs');
 const db = require('./db');
 const authRoutes = require('./routes/auth');
 const gittiRoutes = require('./routes/gitti');
@@ -12,6 +14,12 @@ const vehicleRoutes = require('./routes/vehicles');
 const mandiRoutes = require('./routes/mandis');
 const onboardingRoutes = require('./routes/onboarding');
 const adminRoutes = require('./routes/admin');
+const uploadsRoutes = require('./routes/uploads');
+const ordersRoutes = require('./routes/orders');
+const trackRoutes = require('./routes/track');
+
+const UPLOAD_DIR = process.env.UPLOAD_DIR || '/app/uploads';
+if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -39,6 +47,10 @@ app.use('/api/vehicles', vehicleRoutes);
 app.use('/api/mandis', mandiRoutes);
 app.use('/api/onboarding', onboardingRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/uploads', uploadsRoutes);
+app.use('/api/orders', ordersRoutes);
+app.use('/api/track', trackRoutes);
+app.use('/uploads', express.static(UPLOAD_DIR));
 
 app.use((err, req, res, next) => {
   console.error('Server error:', err);

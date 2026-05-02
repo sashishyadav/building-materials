@@ -58,6 +58,20 @@ router.put('/:id', authenticate, async (req, res) => {
   }
 });
 
+// Delete vehicle (admin — removes vehicle and its listings)
+router.delete('/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await db.query('DELETE FROM gitti_listings WHERE vehicle_id = $1', [id]);
+    await db.query('DELETE FROM morang_listings WHERE vehicle_id = $1', [id]);
+    await db.query('DELETE FROM vehicles WHERE id = $1', [id]);
+    res.json({ success: true });
+  } catch (e) {
+    console.error('Delete vehicle error:', e);
+    res.status(500).json({ error: 'Failed to delete vehicle' });
+  }
+});
+
 // Get vehicles by mandi with their loads
 router.get('/by-mandi/:mandiName', async (req, res) => {
   try {

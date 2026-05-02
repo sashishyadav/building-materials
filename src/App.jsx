@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from "react";
 import { Routes, Route } from "react-router-dom";
 
+const API = "/api";
+
 const TRUCK_IMG = "data:image/svg+xml," + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 260"><defs><linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#fde68a"/><stop offset="100%" stop-color="#f3f4f6"/></linearGradient></defs><rect width="400" height="260" fill="url(#sky)" rx="12"/><rect x="40" y="65" width="320" height="140" rx="10" fill="#fff" stroke="#e5e7eb" stroke-width="2"/><rect x="55" y="75" width="290" height="65" rx="6" fill="#dbeafe"/><rect x="70" y="82" width="260" height="50" rx="3" fill="#93c5fd" opacity="0.4"/><rect x="130" y="92" width="140" height="30" rx="3" fill="#bfdbfe" opacity="0.5"/><rect x="55" y="148" width="130" height="22" rx="11" fill="#fbbf24"/><rect x="215" y="148" width="130" height="22" rx="11" fill="#fbbf24"/><circle cx="110" cy="205" r="24" fill="#1f2937"/><circle cx="110" cy="205" r="14" fill="#4b5563"/><circle cx="110" cy="205" r="6" fill="#9ca3af"/><circle cx="290" cy="205" r="24" fill="#1f2937"/><circle cx="290" cy="205" r="14" fill="#4b5563"/><circle cx="290" cy="205" r="6" fill="#9ca3af"/><rect x="40" y="78" width="22" height="55" rx="5" fill="#3b82f6"/><rect x="338" y="78" width="22" height="55" rx="5" fill="#3b82f6"/><text x="200" y="40" text-anchor="middle" fill="#374151" font-size="15" font-family="sans-serif" font-weight="bold">TATA SIGNA</text><text x="200" y="57" text-anchor="middle" fill="#6b7280" font-size="10" font-family="sans-serif">Construction Material Supplier</text><rect x="140" y="178" width="120" height="20" rx="4" fill="#fbbf24" stroke="#d97706" stroke-width="1"/><text x="200" y="192" text-anchor="middle" fill="#1f2937" font-size="9" font-family="monospace" font-weight="bold">IND</text></svg>`);
 
 const LogoSVG = ({ size = 40 }) => (
@@ -85,9 +87,9 @@ const AnimCard = ({ children, delay = 0 }) => {
   return <div ref={ref} style={{ opacity: v ? 1 : 0, transform: v ? "translateY(0)" : "translateY(25px)", transition: `all 0.5s ease ${delay}s` }}>{children}</div>;
 };
 
-const VehicleImage = ({ reg, tonnes }) => (
+const VehicleImage = ({ reg, tonnes, imageUrl }) => (
   <div className="relative rounded-xl overflow-hidden bg-gray-100 border border-gray-200" style={{ minHeight: 170 }}>
-    <img src={TRUCK_IMG} alt={`Tata Signa - ${reg}`} className="w-full h-44 object-cover" />
+    <img src={imageUrl || TRUCK_IMG} alt={`Tata Signa - ${reg}`} className="w-full h-44 object-cover" onError={e => { e.target.src = TRUCK_IMG; }} />
     <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black via-black/70 to-transparent p-3">
       <div className="flex items-center justify-between">
         <div><div className="text-white font-bold text-sm">Tata Signa • {tonnes}T</div><div className="text-gray-300 text-xs">Construction Material Supplier</div></div>
@@ -102,8 +104,8 @@ const LoginModal = ({ type, onClose, onLogin }) => {
   const [phone, setPhone] = useState(""); const [otp, setOtp] = useState(""); const [step, setStep] = useState("phone"); const [genOtp, setGenOtp] = useState(""); const [error, setError] = useState(""); const [timer, setTimer] = useState(0);
   useEffect(() => { if (timer > 0) { const t = setTimeout(() => setTimer(timer - 1), 1000); return () => clearTimeout(t); } }, [timer]);
   const fmtTime = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
-  const sendOtp = () => { if (phone.length !== 10) { setError("Enter valid 10-digit number"); return; } const code = String(Math.floor(1000 + Math.random() * 9000)); setGenOtp(code); setStep("otp"); setError(""); setTimer(180); };
-  const verifyOtp = () => { if (otp === genOtp) { onLogin({ phone, type }); onClose(); } else setError("Invalid OTP. Please check and try again."); };
+  const sendOtp = async () => { if (phone.length !== 10) { setError("Enter valid 10-digit number"); return; } try { const r = await fetch(`${API}/auth/send-otp`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ phone, type }) }); const d = await r.json(); if (!r.ok) { setError(d.error || "Failed to send OTP"); return; } setGenOtp(d.otp || ""); setStep("otp"); setError(""); setTimer(180); } catch { setError("Network error. Try again."); } };
+  const verifyOtp = async () => { try { const r = await fetch(`${API}/auth/verify-otp`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ phone, otp, type }) }); const d = await r.json(); if (!r.ok) { setError(d.error || "Invalid OTP"); return; } onLogin({ ...d.user, token: d.token }); onClose(); } catch { setError("Network error. Try again."); } };
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
       <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-2xl" onClick={e => e.stopPropagation()}>
@@ -140,21 +142,36 @@ const LoginModal = ({ type, onClose, onLogin }) => {
 };
 
 // ─── SUPPLIER DASHBOARD ───
-const SupplierDashboard = ({ user, gitti, morang, lorries, setGitti, setMorang, setLorries, logout }) => {
+const SupplierDashboard = ({ user, gitti, morang, lorries, setLorries, fetchGitti, fetchMorang, logout }) => {
   const myL = lorries.filter(l => l.supplier_phone === user.phone || l.driver_phone === user.phone || l.owner_phone === user.phone);
   const myG = gitti.filter(g => myL.some(l => l.registration_number === g.lorry_registration));
   const myM = morang.filter(m => myL.some(l => l.registration_number === m.lorry_registration));
   const [eItem, setEItem] = useState(null); const [eType, setEType] = useState(""); const [ePrice, setEPrice] = useState(""); const [eTonnes, setETonnes] = useState("");
-  const save = () => {
-    if (eType === "gitti") setGitti(p => p.map(g => g.id === eItem.id ? { ...g, price_per_cft: Number(ePrice), gross_weight_tonnes: Number(eTonnes) } : g));
-    else if (eType === "morang") setMorang(p => p.map(m => m.id === eItem.id ? { ...m, price_per_tonne: Number(ePrice), gross_weight_tonnes: Number(eTonnes) } : m));
-    else setLorries(p => p.map(l => l.id === eItem.id ? { ...l, gross_weight_tonnes: Number(eTonnes) } : l));
-    setEItem(null);
+  const [saving, setSaving] = useState(false);
+  const save = async () => {
+    setSaving(true);
+    try {
+      if (eType === "gitti") {
+        const res = await fetch(`${API}/gitti/${eItem.id}/price`, { method: "PUT", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${user.token}` }, body: JSON.stringify({ price_per_cft: Number(ePrice), gross_weight_tonnes: Number(eTonnes) }) });
+        const d = await res.json();
+        if (!res.ok) { alert(d.error || "Failed to update price"); return; }
+        fetchGitti();
+      } else if (eType === "morang") {
+        const res = await fetch(`${API}/morang/${eItem.id}/price`, { method: "PUT", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${user.token}` }, body: JSON.stringify({ price_per_tonne: Number(ePrice), gross_weight_tonnes: Number(eTonnes) }) });
+        const d = await res.json();
+        if (!res.ok) { alert(d.error || "Failed to update price"); return; }
+        fetchMorang();
+      } else {
+        setLorries(p => p.map(l => l.id === eItem.id ? { ...l, gross_weight_tonnes: Number(eTonnes) } : l));
+      }
+      setEItem(null);
+    } catch { alert("Network error. Try again."); }
+    finally { setSaving(false); }
   };
   return (
     <div>
       <div className="flex justify-between items-center mb-6 flex-wrap gap-3"><div><h2 className="text-2xl font-bold text-gray-800">Supplier Dashboard</h2><p className="text-gray-500 text-sm">+91 {user.phone}</p></div><button onClick={logout} className="text-sm bg-red-50 text-red-600 px-4 py-2 rounded-lg hover:bg-red-100">Logout</button></div>
-      {eItem && <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setEItem(null)}><div className="bg-white rounded-2xl p-6 w-full max-w-sm" onClick={e => e.stopPropagation()}><h3 className="text-lg font-bold text-gray-800 mb-4">Edit {eType.charAt(0).toUpperCase() + eType.slice(1)}</h3>{eType !== "lorry" && <div className="mb-3"><label className="block text-sm font-medium text-gray-700 mb-1">{eType === "gitti" ? "Price (₹/CFT)" : "Price (₹/Tonne)"}</label><input type="number" value={ePrice} onChange={e => setEPrice(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" /></div>}<div className="mb-4"><label className="block text-sm font-medium text-gray-700 mb-1">Tonnes</label><input type="number" value={eTonnes} onChange={e => setETonnes(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" /></div><div className="flex gap-3"><button onClick={save} className="flex-1 bg-green-600 text-white py-2 rounded-lg text-sm font-medium">Save</button><button onClick={() => setEItem(null)} className="flex-1 border border-gray-300 py-2 rounded-lg text-sm text-gray-600">Cancel</button></div></div></div>}
+      {eItem && <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setEItem(null)}><div className="bg-white rounded-2xl p-6 w-full max-w-sm" onClick={e => e.stopPropagation()}><h3 className="text-lg font-bold text-gray-800 mb-4">Edit {eType.charAt(0).toUpperCase() + eType.slice(1)}</h3>{eType !== "lorry" && <div className="mb-3"><label className="block text-sm font-medium text-gray-700 mb-1">{eType === "gitti" ? "Price (₹/CFT)" : "Price (₹/Tonne)"}</label><input type="number" value={ePrice} onChange={e => setEPrice(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" /></div>}<div className="mb-4"><label className="block text-sm font-medium text-gray-700 mb-1">Tonnes</label><input type="number" value={eTonnes} onChange={e => setETonnes(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" /></div><div className="flex gap-3"><button onClick={save} disabled={saving} className="flex-1 bg-green-600 text-white py-2 rounded-lg text-sm font-medium disabled:opacity-50">{saving ? "Saving..." : "Save"}</button><button onClick={() => setEItem(null)} className="flex-1 border border-gray-300 py-2 rounded-lg text-sm text-gray-600">Cancel</button></div></div></div>}
       <h3 className="font-semibold text-gray-800 mb-3">My Vehicles ({myL.length})</h3>
       <div className="grid gap-3 mb-6">{myL.map(l => <div key={l.id} className="bg-white border border-gray-200 rounded-xl p-4 flex justify-between items-center flex-wrap gap-2"><div className="flex items-center gap-3"><div className="text-2xl">🚛</div><div><div className="font-mono font-bold text-gray-800">{l.registration_number}</div><div className="text-gray-400 text-xs">{l.vehicle_type} • {l.gross_weight_tonnes}T • {l.mandi}</div></div></div><div className="flex items-center gap-2">{availBadge(l.availability)}<button onClick={() => { setEItem(l); setEType("lorry"); setETonnes(String(l.gross_weight_tonnes)); }} className="text-xs bg-blue-50 text-blue-600 px-3 py-1 rounded-lg hover:bg-blue-100">Edit</button></div></div>)}{myL.length === 0 && <div className="text-gray-400 text-sm bg-gray-50 rounded-xl p-6 text-center">No vehicles linked to your phone</div>}</div>
       <h3 className="font-semibold text-gray-800 mb-3">My Gitti ({myG.length})</h3>
@@ -200,25 +217,59 @@ const HomePage = ({ setPage, setLoginModal }) => {
   );
 };
 
+const BookOrderModal = ({ item, type, onClose }) => {
+  const [form, setForm] = useState({ customer_name: "", customer_phone: "", quantity: "", message: "" });
+  const [submitting, setSubmitting] = useState(false); const [done, setDone] = useState(false);
+  const upd = (k, v) => setForm(p => ({ ...p, [k]: v }));
+  const submit = async () => {
+    if (!form.customer_phone || form.customer_phone.length !== 10) { alert("Enter valid 10-digit phone"); return; }
+    setSubmitting(true);
+    try {
+      const res = await fetch(`${API}/orders`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ listing_type: type, listing_id: item.id, ...form }) });
+      if (res.ok) setDone(true);
+      else { const e = await res.json(); alert(e.error || "Booking failed"); }
+    } catch { alert("Network error. Try again."); }
+    finally { setSubmitting(false); }
+  };
+  if (done) return <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}><div className="bg-white rounded-2xl p-8 text-center max-w-sm shadow-2xl" onClick={e => e.stopPropagation()}><div className="text-5xl mb-3">✅</div><div className="font-bold text-green-700 text-xl mb-2">Order Booked!</div><div className="text-gray-500 text-sm mb-5">We'll contact you soon on +91 {form.customer_phone}</div><button onClick={onClose} className="bg-orange-600 text-white px-6 py-2.5 rounded-lg text-sm font-medium">Done</button></div></div>;
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-2xl" onClick={e => e.stopPropagation()}>
+        <h3 className="font-bold text-gray-800 text-lg mb-1">Book Order</h3>
+        <p className="text-gray-400 text-sm mb-4">{type === "gitti" ? `Gitti ${item.size} — ₹${item.price_per_cft}/CFT` : `Morang ${item.type} — ₹${item.price_per_tonne}/T`}</p>
+        <div className="space-y-3">
+          <div><label className="block text-sm font-medium text-gray-700 mb-1">Your Name</label><input value={form.customer_name} onChange={e => upd("customer_name", e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="Optional" /></div>
+          <div><label className="block text-sm font-medium text-gray-700 mb-1">Phone <span className="text-red-500">*</span></label><div className="flex items-center border border-gray-300 rounded-lg overflow-hidden"><span className="bg-gray-50 px-3 py-2 text-sm text-gray-500 border-r">+91</span><input type="tel" value={form.customer_phone} onChange={e => upd("customer_phone", e.target.value.replace(/\D/g, "").slice(0, 10))} className="flex-1 px-3 py-2 text-sm outline-none" /></div></div>
+          <div><label className="block text-sm font-medium text-gray-700 mb-1">Quantity ({type === "gitti" ? "CFT" : "Tonnes"})</label><input type="number" value={form.quantity} onChange={e => upd("quantity", e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" /></div>
+          <div><label className="block text-sm font-medium text-gray-700 mb-1">Message (optional)</label><textarea value={form.message} onChange={e => upd("message", e.target.value)} rows={2} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm resize-none" /></div>
+        </div>
+        <div className="flex gap-3 mt-4"><button onClick={submit} disabled={submitting} className="flex-1 bg-orange-600 text-white py-2.5 rounded-lg text-sm font-medium disabled:opacity-50">{submitting ? "Booking..." : "Book Order"}</button><button onClick={onClose} className="flex-1 border border-gray-300 py-2.5 rounded-lg text-sm text-gray-600">Cancel</button></div>
+      </div>
+    </div>
+  );
+};
+
 const GittiPage = ({ gitti }) => {
-  const [fS, setFS] = useState("all"); const [fC, setFC] = useState("all");
+  const [fS, setFS] = useState("all"); const [fC, setFC] = useState("all"); const [bookItem, setBookItem] = useState(null);
   const f = gitti.filter(g => (fS === "all" || g.size === fS) && (fC === "all" || g.crusher_name === fC));
   return (
     <div>
+      {bookItem && <BookOrderModal item={bookItem} type="gitti" onClose={() => setBookItem(null)} />}
       <h2 className="text-2xl font-bold text-gray-800 mb-1">Gitti (Crushed Stone)</h2><p className="text-gray-500 mb-4 text-sm">6mm Jeera, 12mm Half-Inch, 18mm & 20mm</p>
       <div className="flex flex-wrap gap-3 mb-5"><select value={fS} onChange={e => setFS(e.target.value)} className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"><option value="all">All Sizes</option>{GITTI_SIZES.map(s => <option key={s} value={s}>{s}</option>)}</select><select value={fC} onChange={e => setFC(e.target.value)} className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"><option value="all">All Crushers</option>{["Pragati Crusher", "Murli Crusher", "Maa Durga Crusher"].map(s => <option key={s} value={s}>{s}</option>)}</select></div>
-      <div className="grid gap-4">{f.map(g => <div key={g.id} className="bg-white border border-gray-200 rounded-xl p-5 hover:shadow-md transition"><div className="flex justify-between items-start flex-wrap gap-2"><div><div className="flex items-center gap-2 mb-1"><span className="font-bold text-gray-800 text-lg">Gitti {g.size}</span>{availBadge(g.availability)}</div><div className="text-gray-500 text-sm">{g.crusher_name} • {g.crusher_location}</div></div><div className="text-right"><div className="text-2xl font-bold text-orange-600">₹{g.price_per_cft}</div><div className="text-xs text-gray-400">per CFT</div></div></div><div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-sm text-gray-600"><span className="bg-yellow-50 border border-yellow-200 px-2 py-0.5 rounded font-mono font-bold text-yellow-800 text-xs">{g.lorry_registration}</span><span>{g.gross_weight_tonnes}T</span></div><div className="mt-3 flex gap-3"><a href={`tel:${g.driver_phone}`} className="text-sm bg-green-600 text-white px-4 py-1.5 rounded-lg hover:bg-green-700 transition">📞 Driver</a><a href={`tel:${g.owner_phone}`} className="text-sm border border-gray-300 text-gray-700 px-4 py-1.5 rounded-lg hover:bg-gray-50 transition">📞 Owner</a></div></div>)}</div>
+      <div className="grid gap-4">{f.map(g => <div key={g.id} className="bg-white border border-gray-200 rounded-xl p-5 hover:shadow-md transition"><div className="flex justify-between items-start flex-wrap gap-2"><div><div className="flex items-center gap-2 mb-1"><span className="font-bold text-gray-800 text-lg">Gitti {g.size}</span>{availBadge(g.availability)}</div><div className="text-gray-500 text-sm">{g.crusher_name} • {g.crusher_location}</div></div><div className="text-right"><div className="text-2xl font-bold text-orange-600">₹{g.price_per_cft}</div><div className="text-xs text-gray-400">per CFT</div></div></div><div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-sm text-gray-600"><span className="bg-yellow-50 border border-yellow-200 px-2 py-0.5 rounded font-mono font-bold text-yellow-800 text-xs">{g.lorry_registration}</span><span>{g.gross_weight_tonnes}T</span></div><div className="mt-3 flex gap-3"><button onClick={() => setBookItem(g)} className="text-sm bg-orange-600 text-white px-4 py-1.5 rounded-lg hover:bg-orange-700 transition font-medium">Book Order</button><a href={`tel:${g.driver_phone}`} className="text-sm bg-green-600 text-white px-4 py-1.5 rounded-lg hover:bg-green-700 transition">📞 Driver</a><a href={`tel:${g.owner_phone}`} className="text-sm border border-gray-300 text-gray-700 px-4 py-1.5 rounded-lg hover:bg-gray-50 transition">📞 Owner</a></div></div>)}</div>
     </div>
   );
 };
 
 const MorangPage = ({ morang }) => {
-  const [fT, setFT] = useState("all"); const f = morang.filter(m => fT === "all" || m.type === fT);
+  const [fT, setFT] = useState("all"); const [bookItem, setBookItem] = useState(null); const f = morang.filter(m => fT === "all" || m.type === fT);
   return (
     <div>
+      {bookItem && <BookOrderModal item={bookItem} type="morang" onClose={() => setBookItem(null)} />}
       <h2 className="text-2xl font-bold text-gray-800 mb-1">Morang (Sand)</h2><p className="text-gray-500 mb-4 text-sm">From Dehri, Patna & Banda</p>
       <div className="mb-5"><select value={fT} onChange={e => setFT(e.target.value)} className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"><option value="all">All Types</option>{["mota", "medium", "fine"].map(s => <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>)}</select></div>
-      <div className="grid gap-4">{f.map(m => <div key={m.id} className="bg-white border border-gray-200 rounded-xl p-5 hover:shadow-md transition"><div className="flex justify-between items-start flex-wrap gap-2"><div><div className="flex items-center gap-2 mb-1"><span className="font-bold text-gray-800 text-lg">Morang — {m.type.charAt(0).toUpperCase() + m.type.slice(1)}</span>{availBadge(m.availability)}</div><div className="text-gray-500 text-sm">{m.use_case} • {m.source_location}</div></div><div className="text-right"><div className="text-2xl font-bold text-orange-600">₹{m.price_per_tonne}</div><div className="text-xs text-gray-400">per Tonne</div></div></div><div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-sm text-gray-600"><span className="bg-yellow-50 border border-yellow-200 px-2 py-0.5 rounded font-mono font-bold text-yellow-800 text-xs">{m.lorry_registration}</span><span>{m.gross_weight_tonnes}T</span></div><div className="mt-3 flex gap-3"><a href={`tel:${m.driver_phone}`} className="text-sm bg-green-600 text-white px-4 py-1.5 rounded-lg hover:bg-green-700 transition">📞 Driver</a><a href={`tel:${m.owner_phone}`} className="text-sm border border-gray-300 text-gray-700 px-4 py-1.5 rounded-lg hover:bg-gray-50 transition">📞 Owner</a></div></div>)}</div>
+      <div className="grid gap-4">{f.map(m => <div key={m.id} className="bg-white border border-gray-200 rounded-xl p-5 hover:shadow-md transition"><div className="flex justify-between items-start flex-wrap gap-2"><div><div className="flex items-center gap-2 mb-1"><span className="font-bold text-gray-800 text-lg">Morang — {m.type.charAt(0).toUpperCase() + m.type.slice(1)}</span>{availBadge(m.availability)}</div><div className="text-gray-500 text-sm">{m.use_case} • {m.source_location}</div></div><div className="text-right"><div className="text-2xl font-bold text-orange-600">₹{m.price_per_tonne}</div><div className="text-xs text-gray-400">per Tonne</div></div></div><div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-sm text-gray-600"><span className="bg-yellow-50 border border-yellow-200 px-2 py-0.5 rounded font-mono font-bold text-yellow-800 text-xs">{m.lorry_registration}</span><span>{m.gross_weight_tonnes}T</span></div><div className="mt-3 flex gap-3"><button onClick={() => setBookItem(m)} className="text-sm bg-orange-600 text-white px-4 py-1.5 rounded-lg hover:bg-orange-700 transition font-medium">Book Order</button><a href={`tel:${m.driver_phone}`} className="text-sm bg-green-600 text-white px-4 py-1.5 rounded-lg hover:bg-green-700 transition">📞 Driver</a><a href={`tel:${m.owner_phone}`} className="text-sm border border-gray-300 text-gray-700 px-4 py-1.5 rounded-lg hover:bg-gray-50 transition">📞 Owner</a></div></div>)}</div>
     </div>
   );
 };
@@ -229,7 +280,7 @@ const LorryPage = ({ lorries }) => {
     <div>
       <h2 className="text-2xl font-bold text-gray-800 mb-1">Lorry Services</h2><p className="text-gray-500 mb-4 text-sm">Construction Material Local Marketplace</p>
       <div className="mb-5"><select value={fM} onChange={e => setFM(e.target.value)} className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"><option value="all">All Mandis</option>{MANDIS.map(m => <option key={m.name} value={m.name}>{m.name}</option>)}</select></div>
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">{f.map(l => <div key={l.id} className="bg-white border border-gray-200 rounded-xl overflow-hidden hover:shadow-lg transition"><VehicleImage reg={l.registration_number} tonnes={l.gross_weight_tonnes} /><div className="p-5"><div className="flex items-center gap-2 mb-3"><span className="bg-yellow-400 text-gray-900 font-bold px-3 py-0.5 rounded-lg text-sm font-mono">{l.registration_number}</span>{availBadge(l.availability)}</div><div className="grid grid-cols-2 gap-2 text-sm"><div className="bg-gray-50 rounded-lg p-2.5"><div className="text-gray-400 text-xs">Driver</div><div className="font-medium text-gray-800">{l.driver_name}</div><div className="text-blue-600 text-xs">{l.driver_phone}</div></div><div className="bg-gray-50 rounded-lg p-2.5"><div className="text-gray-400 text-xs">Owner</div><div className="font-medium text-gray-800">{l.owner_name}</div><div className="text-blue-600 text-xs">{l.owner_phone}</div></div><div className="bg-gray-50 rounded-lg p-2.5"><div className="text-gray-400 text-xs">Mandi</div><div className="font-medium text-gray-800">{l.mandi}</div></div><div className="bg-gray-50 rounded-lg p-2.5"><div className="text-gray-400 text-xs">Capacity</div><div className="font-medium text-gray-800">{l.gross_weight_tonnes}T</div></div></div><div className="mt-4 flex gap-3"><a href={`tel:${l.driver_phone}`} className="flex-1 text-center text-sm bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition font-medium">📞 Driver</a><a href={`tel:${l.owner_phone}`} className="flex-1 text-center text-sm border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 transition font-medium">📞 Owner</a></div></div></div>)}</div>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">{f.map(l => <div key={l.id} className="bg-white border border-gray-200 rounded-xl overflow-hidden hover:shadow-lg transition"><VehicleImage reg={l.registration_number} tonnes={l.gross_weight_tonnes} imageUrl={l.image_url} /><div className="p-5"><div className="flex items-center gap-2 mb-3"><span className="bg-yellow-400 text-gray-900 font-bold px-3 py-0.5 rounded-lg text-sm font-mono">{l.registration_number}</span>{availBadge(l.availability)}</div><div className="grid grid-cols-2 gap-2 text-sm"><div className="bg-gray-50 rounded-lg p-2.5"><div className="text-gray-400 text-xs">Driver</div><div className="font-medium text-gray-800">{l.driver_name}</div><div className="text-blue-600 text-xs">{l.driver_phone}</div></div><div className="bg-gray-50 rounded-lg p-2.5"><div className="text-gray-400 text-xs">Owner</div><div className="font-medium text-gray-800">{l.owner_name}</div><div className="text-blue-600 text-xs">{l.owner_phone}</div></div><div className="bg-gray-50 rounded-lg p-2.5"><div className="text-gray-400 text-xs">Mandi</div><div className="font-medium text-gray-800">{l.mandi}</div></div><div className="bg-gray-50 rounded-lg p-2.5"><div className="text-gray-400 text-xs">Capacity</div><div className="font-medium text-gray-800">{l.gross_weight_tonnes}T</div></div></div><div className="mt-4 flex gap-3"><a href={`tel:${l.driver_phone}`} className="flex-1 text-center text-sm bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition font-medium">📞 Driver</a><a href={`tel:${l.owner_phone}`} className="flex-1 text-center text-sm border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 transition font-medium">📞 Owner</a></div></div></div>)}</div>
     </div>
   );
 };
@@ -247,22 +298,49 @@ const MandisPage = ({ lorries, gitti, morang }) => {
   );
 };
 
-const OnboardingPage = ({ addReq, addLorry }) => {
+const OnboardingField = ({ label, fieldKey, type = "text", req, disabled, form, upd }) => (
+  <div>
+    <label className="block text-sm font-medium text-gray-700 mb-1">{label}{req && <span className="text-red-500">*</span>}</label>
+    <input type={type} value={form[fieldKey]} onChange={e => upd(fieldKey, e.target.value)} disabled={disabled} className={`w-full border border-gray-300 rounded-lg px-3 py-2 text-sm ${disabled ? "bg-gray-100" : ""}`} />
+  </div>
+);
+
+const OnboardingPage = ({ fetchReqs }) => {
   const [form, setForm] = useState({ owner_name: "", driver_name: "", driver_phone: "", owner_phone: "", registration_number: "", gross_weight_tonnes: "", product_type: "gitti", product_variant: "6mm (Jeera)", price: "", source_location: "", mandi: "Akbarpur", availability: "available" });
   const [submitted, setSubmitted] = useState(false); const [verifying, setVerifying] = useState(false); const [verified, setVerified] = useState(null); const [verifyError, setVerifyError] = useState("");
+  const [imageFile, setImageFile] = useState(null); const [imagePreview, setImagePreview] = useState(null); const [uploading, setUploading] = useState(false);
   const upd = (k, v) => setForm(p => ({ ...p, [k]: v }));
+  const onImageChange = (e) => { const f = e.target.files[0]; if (!f) return; setImageFile(f); setImagePreview(URL.createObjectURL(f)); };
   const verifyVehicle = () => { const reg = form.registration_number.replace(/\s/g, "").toUpperCase(); if (reg.length < 8) { setVerifyError("Enter valid registration number"); return; } setVerifying(true); setVerifyError(""); setVerified(null); setTimeout(() => { const d = PARIVAHAN_DB[reg]; if (d) { setVerified(d); upd("owner_name", d.owner); } else { setVerifyError("Vehicle not found in Parivahan database."); } setVerifying(false); }, 1500); };
-  const submit = () => { if (!form.owner_name || !form.driver_phone || !form.registration_number) { alert("Fill required fields"); return; } const req = { ...form, registration_number: form.registration_number.replace(/\s/g, "").toUpperCase(), id: Date.now(), status: "pending", submitted_at: new Date().toLocaleDateString(), verified: !!verified }; addReq(req); addLorry({ id: Date.now(), registration_number: req.registration_number, gross_weight_tonnes: Number(req.gross_weight_tonnes) || 40, driver_name: req.driver_name || "TBD", driver_phone: req.driver_phone, owner_name: req.owner_name, owner_phone: req.owner_phone || req.driver_phone, mandi: req.mandi, availability: "available", vehicle_type: verified?.vehicle_type || "Tata Signa", supplier_phone: req.driver_phone }); setSubmitted(true); };
+  const submit = async () => {
+    if (!form.owner_name || !form.driver_phone || !form.registration_number) { alert("Fill required fields"); return; }
+    try {
+      setUploading(true);
+      let image_url = null;
+      if (imageFile) {
+        const fd = new FormData(); fd.append("image", imageFile);
+        const up = await fetch(`${API}/uploads/vehicle`, { method: "POST", body: fd });
+        if (up.ok) { const d = await up.json(); image_url = d.url; }
+      }
+      const res = await fetch(`${API}/onboarding`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...form, registration_number: form.registration_number.replace(/\s/g, "").toUpperCase(), parivahan_verified: !!verified, parivahan_data: verified || null, image_url })
+      });
+      if (res.ok) { fetchReqs(); setSubmitted(true); }
+      else { const e = await res.json(); alert(e.error || "Submission failed"); }
+    } catch { alert("Network error. Please try again."); }
+    finally { setUploading(false); }
+  };
   if (submitted) return <div className="bg-green-50 border border-green-200 rounded-xl p-8 text-center"><div className="text-4xl mb-3">✅</div><div className="text-green-700 text-xl font-bold mb-2">Registration Successful!</div><div className="text-green-600 text-sm">Vehicle added. Admin will review shortly.</div><button onClick={() => { setSubmitted(false); setForm({ owner_name: "", driver_name: "", driver_phone: "", owner_phone: "", registration_number: "", gross_weight_tonnes: "", product_type: "gitti", product_variant: "6mm (Jeera)", price: "", source_location: "", mandi: "Akbarpur", availability: "available" }); setVerified(null); }} className="mt-4 text-sm text-green-700 underline">Register another</button></div>;
-  const F = ({ label, k, type = "text", req, disabled }) => <div><label className="block text-sm font-medium text-gray-700 mb-1">{label}{req && <span className="text-red-500">*</span>}</label><input type={type} value={form[k]} onChange={e => upd(k, e.target.value)} disabled={disabled} className={`w-full border border-gray-300 rounded-lg px-3 py-2 text-sm ${disabled ? "bg-gray-100" : ""}`} /></div>;
   return (
     <div>
       <h2 className="text-2xl font-bold text-gray-800 mb-1">Supplier Registration</h2><p className="text-gray-500 mb-5 text-sm">Register your vehicle & list materials</p>
       <div className="bg-white border border-gray-200 rounded-xl p-6">
         <div className="mb-6 pb-6 border-b border-gray-100"><h3 className="font-semibold text-gray-800 mb-3 flex items-center gap-2"><span className="w-6 h-6 bg-orange-600 text-white rounded-full flex items-center justify-center text-xs">1</span>Verify Vehicle (Parivahan)</h3><div className="flex gap-3 items-end flex-wrap"><div className="flex-1 min-w-48"><label className="block text-sm font-medium text-gray-700 mb-1">Registration Number<span className="text-red-500">*</span></label><input type="text" value={form.registration_number} onChange={e => { upd("registration_number", e.target.value.toUpperCase()); setVerified(null); setVerifyError(""); }} placeholder="e.g. UP45AT9694" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono uppercase" /></div><button onClick={verifyVehicle} disabled={verifying} className="bg-blue-600 text-white px-5 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 whitespace-nowrap">{verifying ? "Verifying..." : "🔍 Verify"}</button></div>{verifyError && <div className="mt-2 bg-red-50 border border-red-200 rounded-lg p-3 text-red-700 text-sm">{verifyError}</div>}{verified && <div className="mt-3 bg-green-50 border border-green-200 rounded-xl p-4"><div className="flex items-center gap-2 mb-2"><span className="text-green-600 text-lg">✅</span><span className="font-semibold text-green-800">Verified!</span></div><div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-sm"><div><span className="text-gray-500">Owner:</span> <span className="font-medium">{verified.owner}</span></div><div><span className="text-gray-500">Vehicle:</span> <span className="font-medium">{verified.vehicle_type}</span></div><div><span className="text-gray-500">RTO:</span> <span className="font-medium">{verified.rto}</span></div><div><span className="text-gray-500">Status:</span> <Badge text={verified.status} color="green" /></div><div><span className="text-gray-500">Fitness:</span> <span className="font-medium">{verified.fitness_upto}</span></div></div></div>}</div>
         <h3 className="font-semibold text-gray-800 mb-3 flex items-center gap-2"><span className="w-6 h-6 bg-orange-600 text-white rounded-full flex items-center justify-center text-xs">2</span>Details</h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4"><F label="Owner Name" k="owner_name" req disabled={!!verified} /><F label="Driver Name" k="driver_name" /><F label="Driver Phone" k="driver_phone" type="tel" req /><F label="Owner Phone" k="owner_phone" type="tel" /><F label="Gross Weight (Tonnes)" k="gross_weight_tonnes" type="number" /><div><label className="block text-sm font-medium text-gray-700 mb-1">Product Type</label><select value={form.product_type} onChange={e => upd("product_type", e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"><option value="gitti">Gitti</option><option value="morang">Morang</option></select></div><div><label className="block text-sm font-medium text-gray-700 mb-1">Variant</label><select value={form.product_variant} onChange={e => upd("product_variant", e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white">{form.product_type === "gitti" ? GITTI_SIZES.map(s => <option key={s}>{s}</option>) : ["mota", "medium", "fine"].map(s => <option key={s}>{s}</option>)}</select></div><F label="Price" k="price" type="number" /><F label="Source Location" k="source_location" /><div><label className="block text-sm font-medium text-gray-700 mb-1">Mandi</label><select value={form.mandi} onChange={e => upd("mandi", e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white">{MANDIS.map(m => <option key={m.name}>{m.name}</option>)}</select></div></div>
-        <button onClick={submit} className="mt-6 bg-orange-600 text-white font-semibold px-6 py-2.5 rounded-lg hover:bg-orange-700 transition">Submit Registration</button>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4"><OnboardingField label="Owner Name" fieldKey="owner_name" req disabled={!!verified} form={form} upd={upd} /><OnboardingField label="Driver Name" fieldKey="driver_name" form={form} upd={upd} /><OnboardingField label="Driver Phone" fieldKey="driver_phone" type="tel" req form={form} upd={upd} /><OnboardingField label="Owner Phone" fieldKey="owner_phone" type="tel" form={form} upd={upd} /><OnboardingField label="Gross Weight (Tonnes)" fieldKey="gross_weight_tonnes" type="number" form={form} upd={upd} /><div><label className="block text-sm font-medium text-gray-700 mb-1">Product Type</label><select value={form.product_type} onChange={e => upd("product_type", e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"><option value="gitti">Gitti</option><option value="morang">Morang</option></select></div><div><label className="block text-sm font-medium text-gray-700 mb-1">Variant</label><select value={form.product_variant} onChange={e => upd("product_variant", e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white">{form.product_type === "gitti" ? GITTI_SIZES.map(s => <option key={s}>{s}</option>) : ["mota", "medium", "fine"].map(s => <option key={s}>{s}</option>)}</select></div><OnboardingField label="Price" fieldKey="price" type="number" form={form} upd={upd} /><OnboardingField label="Source Location" fieldKey="source_location" form={form} upd={upd} /><div><label className="block text-sm font-medium text-gray-700 mb-1">Mandi</label><select value={form.mandi} onChange={e => upd("mandi", e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white">{MANDIS.map(m => <option key={m.name}>{m.name}</option>)}</select></div></div>
+        <div className="mt-5"><label className="block text-sm font-medium text-gray-700 mb-2">Lorry Photo (optional)</label><input type="file" accept="image/jpeg,image/png,image/webp" onChange={onImageChange} className="block w-full text-sm text-gray-500 file:mr-3 file:py-1.5 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-orange-50 file:text-orange-700 hover:file:bg-orange-100" />{imagePreview && <img src={imagePreview} alt="preview" className="mt-3 h-36 w-auto rounded-lg object-cover border border-gray-200" />}</div>
+        <button onClick={submit} disabled={uploading} className="mt-6 bg-orange-600 text-white font-semibold px-6 py-2.5 rounded-lg hover:bg-orange-700 transition disabled:opacity-50">{uploading ? "Submitting..." : "Submit Registration"}</button>
       </div>
     </div>
   );
@@ -270,16 +348,31 @@ const OnboardingPage = ({ addReq, addLorry }) => {
 
 import AdminPortal from "./AdminPortal";
 
+// ─── helpers ───
+const toVehicle = (v) => ({ id: v.id, registration_number: v.registration_number, gross_weight_tonnes: Number(v.gross_weight_tonnes), driver_name: v.driver_name, driver_phone: v.driver_phone, owner_name: v.owner_name, owner_phone: v.owner_phone, mandi: v.mandi_name || v.mandi, availability: v.availability, vehicle_type: v.vehicle_type || "Tata Signa", supplier_phone: v.driver_phone, image_url: v.image_url || null });
+const toGitti = (g) => ({ id: g.id, size: g.size, crusher_name: g.crusher_name, crusher_location: g.crusher_location, price_per_cft: Number(g.price_per_cft), district: "Ambedkar Nagar", lorry_registration: g.registration_number, gross_weight_tonnes: Number(g.gross_weight_tonnes || 40), driver_phone: g.driver_phone, owner_phone: g.owner_phone, availability: g.vehicle_availability || g.availability || "available" });
+const toMorang = (m) => ({ id: m.id, type: m.type, use_case: m.use_case, source_location: m.source_location, price_per_tonne: Number(m.price_per_tonne), district: "Ambedkar Nagar", lorry_registration: m.registration_number, gross_weight_tonnes: Number(m.gross_weight_tonnes || 40), driver_phone: m.driver_phone, owner_phone: m.owner_phone, availability: m.vehicle_availability || m.availability || "available" });
+
 // ─── PUBLIC SITE ───
 const PublicSite = () => {
   const [page, setPage] = useState("home");
-  const [reqs, setReqs] = useState([]); const [mobileMenu, setMobileMenu] = useState(false); const [loginModal, setLoginModal] = useState(null); const [user, setUser] = useState(null);
+  const [mobileMenu, setMobileMenu] = useState(false); const [loginModal, setLoginModal] = useState(null); const [user, setUser] = useState(null);
   const [gitti, setGitti] = useState(initGitti); const [morang, setMorang] = useState(initMorang); const [lorries, setLorries] = useState(initLorries);
-  const addReq = (r) => setReqs(p => [r, ...p]); const addLorry = (l) => setLorries(p => [...p, l]);
+
+  const fetchVehicles = () => fetch(`${API}/vehicles`).then(r => r.json()).then(data => { if (Array.isArray(data) && data.length) setLorries(data.map(toVehicle)); }).catch(() => {});
+  const fetchGitti = () => fetch(`${API}/gitti`).then(r => r.json()).then(data => { if (Array.isArray(data) && data.length) setGitti(data.map(toGitti)); }).catch(() => {});
+  const fetchMorang = () => fetch(`${API}/morang`).then(r => r.json()).then(data => { if (Array.isArray(data) && data.length) setMorang(data.map(toMorang)); }).catch(() => {});
+  const fetchReqs = () => {};
+
+  useEffect(() => {
+    fetchVehicles(); fetchGitti(); fetchMorang();
+    fetch(`${API}/track`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ page: "home" }) }).catch(() => {});
+  }, []);
+
   const handleLogin = (u) => { setUser(u); if (u.type === "supplier") setPage("supplier-dashboard"); };
   const logout = () => { setUser(null); setPage("home"); };
   const navItems = [{ k: "home", l: "Home" }, { k: "gitti", l: "Gitti" }, { k: "morang", l: "Morang" }, { k: "lorry", l: "Lorries" }, { k: "mandis", l: "Mandis" }, { k: "onboarding", l: "Become a Supplier" }, ...(user?.type === "supplier" ? [{ k: "supplier-dashboard", l: "My Dashboard" }] : [])];
-  const render = () => { switch (page) { case "gitti": return <GittiPage gitti={gitti} />; case "morang": return <MorangPage morang={morang} />; case "lorry": return <LorryPage lorries={lorries} />; case "mandis": return <MandisPage lorries={lorries} gitti={gitti} morang={morang} />; case "onboarding": return <OnboardingPage addReq={addReq} addLorry={addLorry} />; case "supplier-dashboard": return user?.type === "supplier" ? <SupplierDashboard user={user} gitti={gitti} morang={morang} lorries={lorries} setGitti={setGitti} setMorang={setMorang} setLorries={setLorries} logout={logout} /> : <HomePage setPage={setPage} setLoginModal={setLoginModal} />; default: return <HomePage setPage={setPage} setLoginModal={setLoginModal} />; } };
+  const render = () => { switch (page) { case "gitti": return <GittiPage gitti={gitti} />; case "morang": return <MorangPage morang={morang} />; case "lorry": return <LorryPage lorries={lorries} />; case "mandis": return <MandisPage lorries={lorries} gitti={gitti} morang={morang} />; case "onboarding": return <OnboardingPage fetchReqs={fetchReqs} />; case "supplier-dashboard": return user?.type === "supplier" ? <SupplierDashboard user={user} gitti={gitti} morang={morang} lorries={lorries} setLorries={setLorries} fetchGitti={fetchGitti} fetchMorang={fetchMorang} logout={logout} /> : <HomePage setPage={setPage} setLoginModal={setLoginModal} />; default: return <HomePage setPage={setPage} setLoginModal={setLoginModal} />; } };
   return (
     <div className="min-h-screen bg-gray-50">
       {loginModal && <LoginModal type={loginModal} onClose={() => setLoginModal(null)} onLogin={handleLogin} />}

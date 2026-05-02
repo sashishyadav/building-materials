@@ -93,11 +93,26 @@ router.put('/onboarding/:id/approve', authenticate, adminOnly, async (req, res) 
     const mandi = await db.query('SELECT id FROM mandis WHERE name = $1', [r.mandi]);
     const mandiId = mandi.rows.length > 0 ? mandi.rows[0].id : 1;
 
-    await db.query(
-      `INSERT INTO vehicles (registration_number, vehicle_type, gross_weight_tonnes, driver_name, driver_phone, owner_name, owner_phone, mandi_id, supplier_id, parivahan_verified, parivahan_data)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) ON CONFLICT (registration_number) DO NOTHING`,
-      [r.registration_number, 'Tata Signa', r.gross_weight_tonnes || 40, r.driver_name, r.driver_phone, r.owner_name, r.owner_phone, mandiId, supplier.rows[0].id, r.parivahan_verified, r.parivahan_data]
+    const vehicleInsert = await db.query(
+      `INSERT INTO vehicles (registration_number, vehicle_type, gross_weight_tonnes, driver_name, driver_phone, owner_name, owner_phone, mandi_id, supplier_id, parivahan_verified, parivahan_data, image_url)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) ON CONFLICT (registration_number) DO UPDATE SET updated_at = NOW() RETURNING id`,
+      [r.registration_number, 'Tata Signa', r.gross_weight_tonnes || 40, r.driver_name, r.driver_phone, r.owner_name, r.owner_phone, mandiId, supplier.rows[0].id, r.parivahan_verified, r.parivahan_data, r.image_url || null]
     );
+    const vehicleId = vehicleInsert.rows[0].id;
+
+    if (r.product_type === 'gitti') {
+      await db.query(
+        `INSERT INTO gitti_listings (size, crusher_name, crusher_location, price_per_cft, vehicle_id, supplier_id)
+         VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING`,
+        [r.product_variant || '12mm (Half-Inch)', r.source_location || 'Local', r.source_location || 'Local', r.price || 50, vehicleId, supplier.rows[0].id]
+      );
+    } else if (r.product_type === 'morang') {
+      await db.query(
+        `INSERT INTO morang_listings (type, use_case, source_location, price_per_tonne, vehicle_id, supplier_id)
+         VALUES ($1,$2,$3,$4,$5,$6)`,
+        [r.product_variant || 'mota', 'General use', r.source_location || 'Local', r.price || 1200, vehicleId, supplier.rows[0].id]
+      );
+    }
 
     await db.query("UPDATE onboarding_requests SET status = 'approved', updated_at = NOW() WHERE id = $1", [id]);
     res.json({ success: true, message: 'Request approved' });
