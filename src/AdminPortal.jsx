@@ -136,7 +136,7 @@ const SidebarIcon = ({ d }) => (
 );
 
 // ─── DASHBOARD ───
-const DashboardPage = ({ token }) => {
+const DashboardPage = ({ token, onNavigate }) => {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -152,11 +152,11 @@ const DashboardPage = ({ token }) => {
   if (error) return <ErrorBox message={error} />;
 
   const cards = [
-    { label: "Gitti Listings", value: stats?.gitti || 0, color: "bg-blue-500", bg: "bg-blue-50" },
-    { label: "Morang Listings", value: stats?.morang || 0, color: "bg-amber-500", bg: "bg-amber-50" },
-    { label: "Vehicles", value: stats?.vehicles || 0, color: "bg-emerald-500", bg: "bg-emerald-50" },
-    { label: "Mandis", value: stats?.mandis || 0, color: "bg-purple-500", bg: "bg-purple-50" },
-    { label: "Pending Requests", value: stats?.pending || 0, color: "bg-red-500", bg: "bg-red-50" },
+    { label: "Gitti Listings", value: stats?.gitti || 0, color: "bg-blue-500", bg: "bg-blue-50", page: "gitti" },
+    { label: "Morang Listings", value: stats?.morang || 0, color: "bg-amber-500", bg: "bg-amber-50", page: "morang" },
+    { label: "Vehicles", value: stats?.vehicles || 0, color: "bg-emerald-500", bg: "bg-emerald-50", page: "lorries" },
+    { label: "Mandis", value: stats?.mandis || 0, color: "bg-purple-500", bg: "bg-purple-50", page: "mandis" },
+    { label: "Pending Requests", value: stats?.pending || 0, color: "bg-red-500", bg: "bg-red-50", page: "onboarding" },
   ];
 
   return (
@@ -165,7 +165,7 @@ const DashboardPage = ({ token }) => {
       <p className="text-gray-500 text-sm mb-6">Overview of your marketplace</p>
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         {cards.map((c) => (
-          <div key={c.label} className={`${c.bg} rounded-xl p-5 border border-gray-100`}>
+          <div key={c.label} onClick={() => onNavigate(c.page)} className={`${c.bg} rounded-xl p-5 border border-gray-100 cursor-pointer hover:shadow-md hover:scale-[1.02] transition-all`}>
             <div className="flex items-center gap-3 mb-2">
               <div className={`w-3 h-3 rounded-full ${c.color}`} />
               <span className="text-xs text-gray-500 font-medium">{c.label}</span>
@@ -334,16 +334,99 @@ const MorangPage = ({ token }) => (
   ]} />
 );
 
-const LorriesPage = ({ token }) => (
-  <DataTablePage title="Lorries" subtitle="All registered vehicles" token={token} endpoint="/api/vehicles" columns={[
-    { key: "registration_number", label: "Reg No.", render: (v) => regBadge(v) },
-    { key: "vehicle_type", label: "Type" },
-    { key: "driver_name", label: "Driver" },
-    { key: "owner_name", label: "Owner" },
-    { key: "gross_weight_tonnes", label: "Weight", render: (v) => `${v}T` },
-    { key: "availability", label: "Status", render: (v) => availBadge(v) },
-  ]} />
-);
+const LorriesPage = ({ token }) => {
+  const [data, setData] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [openMenu, setOpenMenu] = useState(null);
+
+  const fetchData = () => {
+    setLoading(true);
+    apiFetch("/api/vehicles", token)
+      .then((r) => r.json())
+      .then((d) => { setData(Array.isArray(d) ? d : []); setLoading(false); })
+      .catch((e) => { setError(e.message); setLoading(false); });
+  };
+
+  useEffect(() => { fetchData(); }, [token]);
+  useEffect(() => {
+    if (openMenu === null) return;
+    const close = () => setOpenMenu(null);
+    document.addEventListener("click", close);
+    return () => document.removeEventListener("click", close);
+  }, [openMenu]);
+
+  const handleRemove = async (id, reg) => {
+    setOpenMenu(null);
+    if (!window.confirm(`Remove vehicle ${reg} and all its listings?`)) return;
+    try {
+      const res = await apiFetch(`/api/vehicles/${id}`, token, { method: "DELETE" });
+      if (res.ok) fetchData();
+      else { const d = await res.json(); alert(d.error || "Failed to remove"); }
+    } catch { alert("Network error"); }
+  };
+
+  if (loading) return <LoadingSpinner />;
+  if (error) return <ErrorBox message={error} />;
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-800">Lorries</h1>
+          <p className="text-gray-500 text-sm">All registered vehicles</p>
+        </div>
+        <button onClick={fetchData} className="text-sm bg-gray-100 text-gray-600 px-4 py-2 rounded-lg hover:bg-gray-200 transition">Refresh</button>
+      </div>
+      {data.length === 0 ? (
+        <div className="bg-white rounded-xl border border-gray-200 p-12 text-center"><p className="text-gray-400">No vehicles found</p></div>
+      ) : (
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-gray-50 border-b border-gray-200">
+                  <th className="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Reg No.</th>
+                  <th className="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Type</th>
+                  <th className="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Driver</th>
+                  <th className="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Owner</th>
+                  <th className="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Weight</th>
+                  <th className="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wider">Status</th>
+                  <th className="w-10"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.map((row) => (
+                  <tr key={row.id} className="border-b border-gray-100 hover:bg-gray-50 transition">
+                    <td className="px-4 py-3">{regBadge(row.registration_number)}</td>
+                    <td className="px-4 py-3 text-gray-700">{row.vehicle_type ?? "-"}</td>
+                    <td className="px-4 py-3 text-gray-700">{row.driver_name ?? "-"}</td>
+                    <td className="px-4 py-3 text-gray-700">{row.owner_name ?? "-"}</td>
+                    <td className="px-4 py-3 text-gray-700">{row.gross_weight_tonnes}T</td>
+                    <td className="px-4 py-3">{availBadge(row.availability)}</td>
+                    <td className="px-4 py-3 relative">
+                      <button onClick={(e) => { e.stopPropagation(); setOpenMenu(openMenu === row.id ? null : row.id); }} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition">
+                        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><circle cx="10" cy="4" r="1.5" /><circle cx="10" cy="10" r="1.5" /><circle cx="10" cy="16" r="1.5" /></svg>
+                      </button>
+                      {openMenu === row.id && (
+                        <div className="absolute right-4 top-12 z-20 bg-white rounded-lg shadow-lg border border-gray-200 py-1 w-40" onClick={(e) => e.stopPropagation()}>
+                          <button onClick={() => handleRemove(row.id, row.registration_number)} className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition flex items-center gap-2">
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                            Remove
+                          </button>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
 
 const MandisPage = ({ token }) => (
   <DataTablePage title="Mandis" subtitle="All marketplace locations" token={token} endpoint="/api/mandis" columns={[
@@ -414,7 +497,7 @@ export default function AdminPortal() {
       case "lorries": return <LorriesPage token={token} />;
       case "mandis": return <MandisPage token={token} />;
       case "price-history": return <PriceHistoryPage token={token} />;
-      default: return <DashboardPage token={token} />;
+      default: return <DashboardPage token={token} onNavigate={setPage} />;
     }
   };
 
