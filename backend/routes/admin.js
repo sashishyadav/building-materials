@@ -1,9 +1,50 @@
 const router = require('express').Router();
+const jwt = require('jsonwebtoken');
+const bcrypt = require('bcryptjs');
+const rateLimit = require('express-rate-limit');
 const db = require('../db');
 const { authenticate, adminOnly } = require('../middleware/auth');
 
-// Dashboard stats
-router.get('/dashboard', authenticate, async (req, res) => {
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  message: { error: 'Too many login attempts. Try again after 15 minutes.' }
+});
+
+router.post('/login', loginLimiter, async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    if (!username || !password) {
+      return res.status(400).json({ error: 'Username and password required' });
+    }
+
+    if (username !== process.env.ADMIN_USERNAME) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    const valid = await bcrypt.compare(password, process.env.ADMIN_PASSWORD_HASH);
+    if (!valid) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    const token = jwt.sign(
+      { username, type: 'admin' },
+      process.env.JWT_SECRET,
+      { expiresIn: '24h' }
+    );
+
+    res.json({ success: true, token, user: { username, type: 'admin' } });
+  } catch (e) {
+    console.error('Admin login error:', e);
+    res.status(500).json({ error: 'Login failed' });
+  }
+});
+
+router.get('/verify', authenticate, adminOnly, (req, res) => {
+  res.json({ valid: true, user: req.user });
+});
+
+router.get('/dashboard', authenticate, adminOnly, async (req, res) => {
   try {
     const [gitti, morang, vehicles, mandis, pending] = await Promise.all([
       db.query('SELECT COUNT(*)::int as count FROM gitti_listings'),
@@ -24,8 +65,7 @@ router.get('/dashboard', authenticate, async (req, res) => {
   }
 });
 
-// Get all onboarding requests
-router.get('/onboarding', authenticate, async (req, res) => {
+router.get('/onboarding', authenticate, adminOnly, async (req, res) => {
   try {
     const result = await db.query('SELECT * FROM onboarding_requests ORDER BY created_at DESC');
     res.json(result.rows);
@@ -34,8 +74,7 @@ router.get('/onboarding', authenticate, async (req, res) => {
   }
 });
 
-// Approve onboarding request
-router.put('/onboarding/:id/approve', authenticate, async (req, res) => {
+router.put('/onboarding/:id/approve', authenticate, adminOnly, async (req, res) => {
   try {
     const { id } = req.params;
     const request = await db.query('SELECT * FROM onboarding_requests WHERE id = $1', [id]);
@@ -43,7 +82,6 @@ router.put('/onboarding/:id/approve', authenticate, async (req, res) => {
 
     const r = request.rows[0];
 
-    // Create supplier if not exists
     let supplier = await db.query('SELECT * FROM suppliers WHERE phone = $1', [r.driver_phone]);
     if (supplier.rows.length === 0) {
       supplier = await db.query(
@@ -52,7 +90,6 @@ router.put('/onboarding/:id/approve', authenticate, async (req, res) => {
       );
     }
 
-    // Create vehicle
     const mandi = await db.query('SELECT id FROM mandis WHERE name = $1', [r.mandi]);
     const mandiId = mandi.rows.length > 0 ? mandi.rows[0].id : 1;
 
@@ -70,8 +107,7 @@ router.put('/onboarding/:id/approve', authenticate, async (req, res) => {
   }
 });
 
-// Reject onboarding request
-router.put('/onboarding/:id/reject', authenticate, async (req, res) => {
+router.put('/onboarding/:id/reject', authenticate, adminOnly, async (req, res) => {
   try {
     await db.query("UPDATE onboarding_requests SET status = 'rejected', updated_at = NOW() WHERE id = $1", [req.params.id]);
     res.json({ success: true, message: 'Request rejected' });
@@ -80,8 +116,7 @@ router.put('/onboarding/:id/reject', authenticate, async (req, res) => {
   }
 });
 
-// Price history
-router.get('/price-history', authenticate, async (req, res) => {
+router.get('/price-history', authenticate, adminOnly, async (req, res) => {
   try {
     const result = await db.query(
       `SELECT ph.*, s.name as changed_by_name, s.phone as changed_by_phone
